@@ -11,12 +11,7 @@ import {
   Progress,
   useToast,
 } from '../components/UI'
-import {
-  daysUntil,
-  goalMonthlyPace,
-  goalProgress,
-  sortByDateDesc,
-} from '../lib/analytics'
+import { daysUntil, goalMonthlyPace, goalProgress } from '../lib/analytics'
 import {
   currencySymbol,
   formatDate,
@@ -54,7 +49,13 @@ export default function Savings() {
   const totalSaved = useMemo(() => goals.reduce((acc, goal) => acc + goal.saved_amount, 0), [goals])
   const totalTarget = useMemo(() => goals.reduce((acc, goal) => acc + goal.target_amount, 0), [goals])
 
-  const recentActivity = useMemo(() => sortByDateDesc(activity as never[]).slice(0, 8), [activity])
+  const recentActivity = useMemo(
+    () =>
+      [...activity]
+        .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
+        .slice(0, 8),
+    [activity],
+  )
 
   const openNew = () => {
     setEditing(null)

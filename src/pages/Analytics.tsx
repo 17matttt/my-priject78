@@ -44,7 +44,10 @@ export default function Analytics() {
   const previousMonth = shiftMonth(month, -1)
   const previous = useMemo(() => totalsFor(transactions, previousMonth), [transactions, previousMonth])
 
-  const breakdown = useMemo(() => categoryBreakdown(transactions, month), [transactions, month])
+  const breakdown = useMemo(
+    () => categoryBreakdown(transactions, month, 'expense'),
+    [transactions, month],
+  )
 
   const slices = useMemo<DonutSlice[]>(
     () =>
