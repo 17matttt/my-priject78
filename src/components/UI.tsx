@@ -3,43 +3,52 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
-import { X } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { Icon } from './Icon'
 
-/* ------------------------------------------------------------------
-   Toasts
-   ------------------------------------------------------------------ */
+/* ---------------------------------- toasts --------------------------------- */
 
-type Tone = 'ok' | 'err' | 'info'
-
+type Tone = 'ok' | 'warn' | 'danger' | 'info'
 interface ToastItem {
   id: number
   message: string
   tone: Tone
 }
 
-const ToastContext = createContext<(message: string, tone?: Tone) => void>(() => {})
+interface ToastApi {
+  toast: (message: string, tone?: Tone) => void
+}
+
+const ToastContext = createContext<ToastApi | null>(null)
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([])
+  const counter = useRef(0)
 
-  const push = useCallback((message: string, tone: Tone = 'ok') => {
-    const id = Date.now() + Math.random()
-    setItems((prev) => [...prev.slice(-2), { id, message, tone }])
+  const toast = useCallback((message: string, tone: Tone = 'ok') => {
+    counter.current += 1
+    const id = counter.current
+    setItems((prev) => [...prev, { id, message, tone }])
     window.setTimeout(() => {
       setItems((prev) => prev.filter((t) => t.id !== id))
-    }, 4000)
+    }, 3400)
   }, [])
 
+  const api = useMemo(() => ({ toast }), [toast])
+
   return (
-    <ToastContext.Provider value={push}>
+    <ToastContext.Provider value={api}>
       {children}
-      <div className="toast-host" aria-live="polite" aria-atomic="false">
-        {items.map((t) => (
-          <div key={t.id} className={`toast ${t.tone}`}>
-            {t.message}
+      <div className="toast-host" role="status" aria-live="polite">
+        {items.map((item) => (
+          <div key={item.id} className={`toast toast-${item.tone}`}>
+            <Icon name={item.tone === 'danger' ? 'alert' : item.tone === 'warn' ? 'info' : 'check-circle'} size={16} />
+            <span>{item.message}</span>
           </div>
         ))}
       </div>
@@ -47,13 +56,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   )
 }
 
-export function useToast() {
-  return useContext(ToastContext)
+export function useToast(): ToastApi {
+  const ctx = useContext(ToastContext)
+  if (!ctx) throw new Error('useToast doit être utilisé dans ToastProvider')
+  return ctx
 }
 
-/* ------------------------------------------------------------------
-   Modal
-   ------------------------------------------------------------------ */
+/* ---------------------------------- modal ---------------------------------- */
 
 interface ModalProps {
   open: boolean
@@ -62,123 +71,92 @@ interface ModalProps {
   subtitle?: string
   children: ReactNode
   footer?: ReactNode
+  width?: 'sm' | 'md' | 'lg'
 }
 
-export function Modal({ open, onClose, title, subtitle, children, footer }: ModalProps) {
+export function Modal({ open, onClose, title, subtitle, children, footer, width = 'md' }: ModalProps) {
   useEffect(() => {
     if (!open) return
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
     }
     document.addEventListener('keydown', onKey)
-    const previous = document.body.style.overflow
+    const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => {
       document.removeEventListener('keydown', onKey)
-      document.body.style.overflow = previous
+      document.body.style.overflow = prev
     }
   }, [open, onClose])
 
   if (!open) return null
 
-  return (
-    <div
-      className="overlay"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
-        <div className="modal-head">
+  return createPortal(
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className={`modal modal-${width}`} role="dialog" aria-modal="true" aria-label={title}>
+        <header className="modal-head">
           <div>
             <h2 className="modal-title">{title}</h2>
             {subtitle ? <p className="modal-sub">{subtitle}</p> : null}
           </div>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close dialog">
-            <X />
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="Fermer">
+            <Icon name="x" size={18} />
           </button>
-        </div>
+        </header>
         <div className="modal-body">{children}</div>
-        {footer ? <div className="modal-foot">{footer}</div> : null}
+        {footer ? <footer className="modal-foot">{footer}</footer> : null}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
-
-/* ------------------------------------------------------------------
-   Confirmation
-   ------------------------------------------------------------------ */
 
 interface ConfirmProps {
   open: boolean
   title: string
-  text: string
+  message: string
   confirmLabel?: string
-  busy?: boolean
+  tone?: 'danger' | 'primary'
   onConfirm: () => void
-  onClose: () => void
+  onCancel: () => void
 }
 
 export function ConfirmDialog({
   open,
   title,
-  text,
-  confirmLabel = 'Delete',
-  busy = false,
+  message,
+  confirmLabel = 'Confirmer',
+  tone = 'primary',
   onConfirm,
-  onClose,
+  onCancel,
 }: ConfirmProps) {
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={onCancel}
       title={title}
-      subtitle={text}
+      width="sm"
       footer={
         <>
-          <button type="button" className="btn btn-quiet" onClick={onClose} disabled={busy}>
-            Cancel
+          <button type="button" className="btn btn-quiet" onClick={onCancel}>
+            Annuler
           </button>
-          <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={busy}>
-            {busy ? 'Working…' : confirmLabel}
+          <button
+            type="button"
+            className={`btn ${tone === 'danger' ? 'btn-danger' : 'btn-primary'}`}
+            onClick={onConfirm}
+          >
+            {confirmLabel}
           </button>
         </>
       }
     >
-      <p className="settings-desc">
-        This action is permanent. Your records are removed immediately and cannot be recovered.
-      </p>
+      <p className="confirm-text">{message}</p>
     </Modal>
   )
 }
 
-/* ------------------------------------------------------------------
-   Layout primitives
-   ------------------------------------------------------------------ */
-
-export function PageHead({
-  eyebrow,
-  title,
-  sub,
-  actions,
-}: {
-  eyebrow?: string
-  title: string
-  sub?: string
-  actions?: ReactNode
-}) {
-  return (
-    <header className="page-head">
-      <div>
-        {eyebrow ? <div className="page-eyebrow">{eyebrow}</div> : null}
-        <h1 className="page-title">{title}</h1>
-        {sub ? <p className="page-sub">{sub}</p> : null}
-      </div>
-      {actions ? <div className="head-actions">{actions}</div> : null}
-    </header>
-  )
-}
+/* -------------------------------- primitives -------------------------------- */
 
 export function EmptyState({
   icon,
@@ -186,128 +164,189 @@ export function EmptyState({
   text,
   action,
 }: {
-  icon: ReactNode
+  icon: string
   title: string
   text: string
   action?: ReactNode
 }) {
   return (
     <div className="empty">
-      <div className="empty-icon">{icon}</div>
+      <div className="empty-icon">
+        <Icon name={icon} size={22} />
+      </div>
       <h3 className="empty-title">{title}</h3>
       <p className="empty-text">{text}</p>
-      {action ? <div className="row" style={{ marginTop: 4 }}>{action}</div> : null}
+      {action ? <div className="empty-action">{action}</div> : null}
     </div>
   )
 }
 
-export function Progress({ value, tone }: { value: number; tone?: 'warn' | 'over' }) {
-  const width = Math.min(Math.max(Number.isFinite(value) ? value : 0, 0), 100)
+export function Progress({
+  percent,
+  tone = 'ok',
+  thin = false,
+}: {
+  percent: number
+  tone?: 'ok' | 'warn' | 'over' | 'accent'
+  thin?: boolean
+}) {
+  const clamped = Math.max(0, Math.min(100, percent))
   return (
-    <div className="progress" role="progressbar" aria-valuenow={Math.round(width)} aria-valuemin={0} aria-valuemax={100}>
-      <div className={`progress-fill ${tone ?? ''}`} style={{ width: `${width}%` }} />
+    <div className={`progress ${thin ? 'progress-thin' : ''}`}>
+      <div className={`progress-fill tone-${tone}`} style={{ width: `${clamped}%` }} />
+    </div>
+  )
+}
+
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+  size = 'md',
+}: {
+  options: { id: T; label: string }[]
+  value: T
+  onChange: (v: T) => void
+  size?: 'sm' | 'md'
+}) {
+  return (
+    <div className={`segmented ${size === 'sm' ? 'segmented-sm' : ''}`} role="tablist">
+      {options.map((opt) => (
+        <button
+          key={opt.id}
+          type="button"
+          role="tab"
+          aria-selected={value === opt.id}
+          className={`seg-item ${value === opt.id ? 'active' : ''}`}
+          onClick={() => onChange(opt.id)}
+        >
+          {opt.label}
+        </button>
+      ))}
     </div>
   )
 }
 
 export function Field({
   label,
-  htmlFor,
+  hint,
   error,
   children,
-  className,
+  className = '',
 }: {
   label: string
-  htmlFor?: string
+  hint?: string
   error?: string
   children: ReactNode
   className?: string
 }) {
   return (
-    <div className={`field ${className ?? ''}`}>
-      <label className="field-label" htmlFor={htmlFor}>
-        {label}
-      </label>
+    <label className={`field ${className}`}>
+      <span className="label">{label}</span>
       {children}
-      {error ? <span className="field-error">{error}</span> : null}
-    </div>
+      {error ? <span className="error">{error}</span> : hint ? <span className="hint">{hint}</span> : null}
+    </label>
   )
 }
 
-export function MonthNav({
+export function Toggle({
+  checked,
+  onChange,
   label,
-  onPrev,
-  onNext,
-  nextDisabled,
-  onReset,
 }: {
+  checked: boolean
+  onChange: (v: boolean) => void
   label: string
-  onPrev: () => void
-  onNext: () => void
-  nextDisabled?: boolean
-  onReset?: () => void
 }) {
   return (
-    <div className="month-nav">
-      <button type="button" className="icon-btn" onClick={onPrev} aria-label="Previous month">
-        <ChevronLeft />
-      </button>
-      <button type="button" className="t-label" onClick={onReset} title="Jump to current month">
-        {label}
-      </button>
-      <button
-        type="button"
-        className="icon-btn"
-        onClick={onNext}
-        aria-label="Next month"
-        disabled={nextDisabled}
-      >
-        <ChevronRight />
-      </button>
-    </div>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      className={`toggle ${checked ? 'on' : ''}`}
+      onClick={() => onChange(!checked)}
+    >
+      <span className="toggle-dot" />
+    </button>
   )
-}
-
-function ChevronLeft() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M15 18l-6-6 6-6" />
-    </svg>
-  )
-}
-
-function ChevronRight() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 18l6-6-6-6" />
-    </svg>
-  )
-}
-
-export function Skeleton({ height = 16, width = '100%' }: { height?: number; width?: string }) {
-  return <div className="skeleton" style={{ height, width }} />
 }
 
 export function Badge({
-  tone = 'neutral',
   children,
+  tone = 'muted',
 }: {
-  tone?: 'neutral' | 'lime' | 'red' | 'warn' | 'info'
   children: ReactNode
+  tone?: 'muted' | 'ok' | 'warn' | 'danger' | 'accent'
 }) {
-  return <span className={`badge ${tone}`}>{children}</span>
+  return <span className={`badge badge-${tone}`}>{children}</span>
 }
 
-/** Small pill showing a change versus the previous period. */
-export function Delta({ value, suffix }: { value: number | null; suffix?: string }) {
-  if (value === null) {
-    return <span className="delta flat">New</span>
-  }
-  const tone = value > 0.5 ? 'up' : value < -0.5 ? 'down' : 'flat'
-  const arrow = value > 0.5 ? '↑' : value < -0.5 ? '↓' : '→'
+export function StatCard({
+  label,
+  value,
+  meta,
+  delta,
+  icon,
+  accent = false,
+}: {
+  label: string
+  value: string
+  meta?: ReactNode
+  delta?: { value: number | null; suffix?: string }
+  icon?: string
+  accent?: boolean
+}) {
   return (
-    <span className={`delta ${tone}`}>
-      {arrow} {Math.abs(value).toFixed(1)}%{suffix ? ` ${suffix}` : ''}
-    </span>
+    <div className={`stat ${accent ? 'stat-accent' : ''}`}>
+      <div className="stat-top">
+        <span className="stat-label">{label}</span>
+        {icon ? (
+          <span className="stat-icon">
+            <Icon name={icon} size={16} />
+          </span>
+        ) : null}
+      </div>
+      <div className="stat-value tnum">{value}</div>
+      <div className="stat-foot">
+        {delta ? (
+          <span className={`delta ${delta.value === null ? 'flat' : delta.value >= 0 ? 'up' : 'down'}`}>
+            <Icon name={delta.value !== null && delta.value < 0 ? 'arrow-down-right' : 'arrow-up-right'} size={13} />
+            {delta.value === null ? 'Nouveau' : `${Math.abs(delta.value).toFixed(0)} %`}
+            {delta.suffix ? <span className="delta-suffix">{delta.suffix}</span> : null}
+          </span>
+        ) : null}
+        {meta ? <span className="stat-meta">{meta}</span> : null}
+      </div>
+    </div>
+  )
+}
+
+export function SectionHead({
+  title,
+  subtitle,
+  action,
+}: {
+  title: string
+  subtitle?: string
+  action?: ReactNode
+}) {
+  return (
+    <div className="section-head">
+      <div>
+        <h2 className="section-title">{title}</h2>
+        {subtitle ? <p className="section-sub">{subtitle}</p> : null}
+      </div>
+      {action}
+    </div>
+  )
+}
+
+export function InfoRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="info-row">
+      <span>{label}</span>
+      <span className="info-value">{value}</span>
+    </div>
   )
 }

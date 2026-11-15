@@ -7,279 +7,235 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { useAuth } from './AuthContext'
-import { createCloudStore } from '../lib/cloudStore'
-import { createLocalStore } from '../lib/localStore'
 import type {
-  Budget,
-  BudgetInput,
-  GoalActivity,
-  GoalInput,
+  CalendarEvent,
+  Goal,
+  MonthBudget,
   Profile,
-  SavingsGoal,
-  Store,
+  Subscription,
   Transaction,
-  TransactionInput,
+  VaultData,
 } from '../lib/types'
+import { demoData, emptyData, loadData, saveData } from '../lib/storage'
+import { currentMonthKey, formatMoney, todayIso, uid } from '../lib/format'
 
-interface DataContextValue {
-  store: Store | null
-  profile: Profile | null
-  transactions: Transaction[]
-  budgets: Budget[]
-  goals: SavingsGoal[]
-  activity: GoalActivity[]
-  loading: boolean
-  error: string | null
-  reload: () => Promise<void>
-  saveProfile: (
-    patch: Partial<Pick<Profile, 'full_name' | 'currency' | 'privacy_mode'>>,
-  ) => Promise<void>
-  addTransaction: (input: TransactionInput) => Promise<void>
-  editTransaction: (id: string, input: TransactionInput) => Promise<void>
-  removeTransaction: (id: string) => Promise<void>
-  saveBudget: (input: BudgetInput, id?: string) => Promise<void>
-  removeBudget: (id: string) => Promise<void>
-  addGoal: (input: GoalInput) => Promise<void>
-  editGoal: (id: string, input: GoalInput) => Promise<void>
-  removeGoal: (id: string) => Promise<void>
-  moveGoalMoney: (id: string, amount: number, note: string) => Promise<void>
-  clearAllData: () => Promise<void>
-  deleteAccount: () => Promise<{ authRemoved: boolean }>
+export type TxInput = Omit<Transaction, 'id' | 'createdAt'>
+export type GoalInput = {
+  name: string
+  target: number
+  saved: number
+  deadline: string | null
+  icon: string
+  description: string
+}
+export type SubscriptionInput = Omit<Subscription, 'id' | 'createdAt'>
+export type EventInput = Omit<CalendarEvent, 'id' | 'createdAt'>
+
+interface DataApi {
+  data: VaultData
+  ready: boolean
+  currency: string
+  masked: boolean
+  money: (value: number, opts?: { decimals?: boolean; signed?: boolean }) => string
+  hasData: boolean
+  updateProfile: (patch: Partial<Profile>) => void
+  addTransaction: (input: TxInput) => void
+  updateTransaction: (id: string, patch: Partial<TxInput>) => void
+  deleteTransaction: (id: string) => void
+  saveBudget: (month: string, overall: number, categories: Record<string, number>) => void
+  deleteBudget: (month: string) => void
+  addGoal: (input: GoalInput) => void
+  updateGoal: (id: string, patch: Partial<GoalInput>) => void
+  deleteGoal: (id: string) => void
+  contributeToGoal: (id: string, amount: number, note?: string, date?: string) => void
+  addSubscription: (input: SubscriptionInput) => void
+  updateSubscription: (id: string, patch: Partial<SubscriptionInput>) => void
+  deleteSubscription: (id: string) => void
+  addEvent: (input: EventInput) => void
+  updateEvent: (id: string, patch: Partial<EventInput>) => void
+  toggleEventPaid: (id: string) => void
+  deleteEvent: (id: string) => void
+  loadDemo: () => void
+  clearAll: () => void
+  importData: (next: VaultData) => void
 }
 
-const DataContext = createContext<DataContextValue | null>(null)
+const DataContext = createContext<DataApi | null>(null)
 
 export function DataProvider({ children }: { children: ReactNode }) {
-  const { user, mode, renameLocalUser, removeLocalAccount, signOut } = useAuth()
-  const [profile, setProfile] = useState<Profile | null>(null)
-  const [transactions, setTransactions] = useState<Transaction[]>([])
-  const [budgets, setBudgets] = useState<Budget[]>([])
-  const [goals, setGoals] = useState<SavingsGoal[]>([])
-  const [activity, setActivity] = useState<GoalActivity[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  const store = useMemo<Store | null>(() => {
-    if (!user) return null
-    if (mode === 'cloud') return createCloudStore(user.id)
-    return createLocalStore(user.id, user.name ?? '')
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, mode])
-
-  const reload = useCallback(async () => {
-    if (!store) return
-    setLoading(true)
-    setError(null)
-    try {
-      const [nextProfile, nextTransactions, nextBudgets, nextGoals, nextActivity] =
-        await Promise.all([
-          store.getProfile(),
-          store.listTransactions(),
-          store.listBudgets(),
-          store.listGoals(),
-          store.listGoalActivity(),
-        ])
-      setProfile(nextProfile)
-      setTransactions(nextTransactions)
-      setBudgets(nextBudgets)
-      setGoals(nextGoals)
-      setActivity(nextActivity)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load your data.')
-    } finally {
-      setLoading(false)
-    }
-  }, [store])
+  const [data, setData] = useState<VaultData>(() => loadData())
+  const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    if (!store) {
-      setProfile(null)
-      setTransactions([])
-      setBudgets([])
-      setGoals([])
-      setActivity([])
-      setLoading(false)
-      return
+    setReady(true)
+  }, [])
+
+  useEffect(() => {
+    saveData(data)
+  }, [data])
+
+  const money = useCallback(
+    (value: number, opts: { decimals?: boolean; signed?: boolean } = {}) =>
+      formatMoney(value, data.profile.currency, { ...opts, masked: data.profile.privacyMode }),
+    [data.profile.currency, data.profile.privacyMode],
+  )
+
+  const api = useMemo<DataApi>(() => {
+    const patchData = (fn: (prev: VaultData) => VaultData) => setData((prev) => fn(prev))
+
+    return {
+      data,
+      ready,
+      currency: data.profile.currency,
+      masked: data.profile.privacyMode,
+      money,
+      hasData:
+        data.transactions.length > 0 ||
+        data.goals.length > 0 ||
+        data.subscriptions.length > 0 ||
+        data.events.length > 0,
+      updateProfile: (patch) =>
+        patchData((prev) => ({ ...prev, profile: { ...prev.profile, ...patch } })),
+
+      addTransaction: (input) =>
+        patchData((prev) => ({
+          ...prev,
+          transactions: [
+            { ...input, id: uid('tx'), createdAt: new Date().toISOString() },
+            ...prev.transactions,
+          ],
+        })),
+      updateTransaction: (id, patch) =>
+        patchData((prev) => ({
+          ...prev,
+          transactions: prev.transactions.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+        })),
+      deleteTransaction: (id) =>
+        patchData((prev) => ({
+          ...prev,
+          transactions: prev.transactions.filter((t) => t.id !== id),
+        })),
+
+      saveBudget: (month, overall, categories) =>
+        patchData((prev) => {
+          const entry: MonthBudget = {
+            month,
+            overall,
+            categories,
+            updatedAt: new Date().toISOString(),
+          }
+          const exists = prev.budgets.some((b) => b.month === month)
+          return {
+            ...prev,
+            budgets: exists
+              ? prev.budgets.map((b) => (b.month === month ? entry : b))
+              : [...prev.budgets, entry],
+          }
+        }),
+      deleteBudget: (month) =>
+        patchData((prev) => ({ ...prev, budgets: prev.budgets.filter((b) => b.month !== month) })),
+
+      addGoal: (input) =>
+        patchData((prev) => ({
+          ...prev,
+          goals: [
+            {
+              ...input,
+              contributions: input.saved
+                ? [
+                    {
+                      id: uid('c'),
+                      amount: input.saved,
+                      date: todayIso(),
+                      note: 'Montant initial',
+                    },
+                  ]
+                : [],
+              id: uid('goal'),
+              createdAt: new Date().toISOString(),
+            },
+            ...prev.goals,
+          ],
+        })),
+      updateGoal: (id, patch) =>
+        patchData((prev) => ({
+          ...prev,
+          goals: prev.goals.map((g) => (g.id === id ? { ...g, ...patch } : g)),
+        })),
+      deleteGoal: (id) =>
+        patchData((prev) => ({ ...prev, goals: prev.goals.filter((g) => g.id !== id) })),
+      contributeToGoal: (id, amount, note = '', date = todayIso()) =>
+        patchData((prev) => ({
+          ...prev,
+          goals: prev.goals.map((g) => {
+            if (g.id !== id) return g
+            const nextSaved = Math.max(0, Math.round((g.saved + amount) * 100) / 100)
+            return {
+              ...g,
+              saved: nextSaved,
+              contributions: [
+                { id: uid('c'), amount, date, note },
+                ...g.contributions,
+              ],
+            }
+          }),
+        })),
+
+      addSubscription: (input) =>
+        patchData((prev) => ({
+          ...prev,
+          subscriptions: [
+            { ...input, id: uid('sub'), createdAt: new Date().toISOString() },
+            ...prev.subscriptions,
+          ],
+        })),
+      updateSubscription: (id, patch) =>
+        patchData((prev) => ({
+          ...prev,
+          subscriptions: prev.subscriptions.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+        })),
+      deleteSubscription: (id) =>
+        patchData((prev) => ({
+          ...prev,
+          subscriptions: prev.subscriptions.filter((s) => s.id !== id),
+        })),
+
+      addEvent: (input) =>
+        patchData((prev) => ({
+          ...prev,
+          events: [
+            { ...input, id: uid('ev'), createdAt: new Date().toISOString() },
+            ...prev.events,
+          ],
+        })),
+      updateEvent: (id, patch) =>
+        patchData((prev) => ({
+          ...prev,
+          events: prev.events.map((e) => (e.id === id ? { ...e, ...patch } : e)),
+        })),
+      toggleEventPaid: (id) =>
+        patchData((prev) => ({
+          ...prev,
+          events: prev.events.map((e) => (e.id === id ? { ...e, paid: !e.paid } : e)),
+        })),
+      deleteEvent: (id) =>
+        patchData((prev) => ({ ...prev, events: prev.events.filter((e) => e.id !== id) })),
+
+      loadDemo: () => setData(demoData()),
+      clearAll: () => setData(emptyData()),
+      importData: (next) => setData(next),
     }
-    void reload()
-  }, [store, reload])
+  }, [data, ready, money])
 
-  const saveProfile = useCallback<DataContextValue['saveProfile']>(
-    async (patch) => {
-      if (!store) return
-      const updated = await store.updateProfile(patch)
-      setProfile(updated)
-      if (mode === 'local' && typeof patch.full_name === 'string') {
-        renameLocalUser(patch.full_name)
-      }
-    },
-    [store, mode, renameLocalUser],
-  )
-
-  const addTransaction = useCallback<DataContextValue['addTransaction']>(
-    async (input) => {
-      if (!store) return
-      const created = await store.createTransaction(input)
-      setTransactions((prev) => [created, ...prev])
-    },
-    [store],
-  )
-
-  const editTransaction = useCallback<DataContextValue['editTransaction']>(
-    async (id, input) => {
-      if (!store) return
-      const updated = await store.updateTransaction(id, input)
-      setTransactions((prev) => prev.map((t) => (t.id === id ? updated : t)))
-    },
-    [store],
-  )
-
-  const removeTransaction = useCallback<DataContextValue['removeTransaction']>(
-    async (id) => {
-      if (!store) return
-      await store.deleteTransaction(id)
-      setTransactions((prev) => prev.filter((t) => t.id !== id))
-    },
-    [store],
-  )
-
-  const saveBudget = useCallback<DataContextValue['saveBudget']>(
-    async (input, id) => {
-      if (!store) return
-      const saved = await store.saveBudget(input, id)
-      setBudgets((prev) => {
-        const exists = prev.some((b) => b.id === saved.id)
-        return exists ? prev.map((b) => (b.id === saved.id ? saved : b)) : [...prev, saved]
-      })
-    },
-    [store],
-  )
-
-  const removeBudget = useCallback<DataContextValue['removeBudget']>(
-    async (id) => {
-      if (!store) return
-      await store.deleteBudget(id)
-      setBudgets((prev) => prev.filter((b) => b.id !== id))
-    },
-    [store],
-  )
-
-  const addGoal = useCallback<DataContextValue['addGoal']>(
-    async (input) => {
-      if (!store) return
-      const created = await store.createGoal(input)
-      setGoals((prev) => [...prev, created])
-      setActivity(await store.listGoalActivity())
-    },
-    [store],
-  )
-
-  const editGoal = useCallback<DataContextValue['editGoal']>(
-    async (id, input) => {
-      if (!store) return
-      const updated = await store.updateGoal(id, input)
-      setGoals((prev) => prev.map((g) => (g.id === id ? updated : g)))
-    },
-    [store],
-  )
-
-  const removeGoal = useCallback<DataContextValue['removeGoal']>(
-    async (id) => {
-      if (!store) return
-      await store.deleteGoal(id)
-      setGoals((prev) => prev.filter((g) => g.id !== id))
-      setActivity((prev) => prev.filter((a) => a.goal_id !== id))
-    },
-    [store],
-  )
-
-  const moveGoalMoney = useCallback<DataContextValue['moveGoalMoney']>(
-    async (id, amount, note) => {
-      if (!store) return
-      const updated = await store.addToGoal(id, amount, note)
-      setGoals((prev) => prev.map((g) => (g.id === id ? updated : g)))
-      setActivity(await store.listGoalActivity())
-    },
-    [store],
-  )
-
-  const clearAllData = useCallback(async () => {
-    if (!store) return
-    await store.clearAllData()
-    setTransactions([])
-    setBudgets([])
-    setGoals([])
-    setActivity([])
-  }, [store])
-
-  const deleteAccount = useCallback(async () => {
-    if (!store) return { authRemoved: false }
-    const result = await store.deleteAccount()
-    setTransactions([])
-    setBudgets([])
-    setGoals([])
-    setActivity([])
-    setProfile(null)
-    if (mode === 'local') removeLocalAccount()
-    else await signOut()
-    return result
-  }, [store, mode, removeLocalAccount, signOut])
-
-  const value = useMemo<DataContextValue>(
-    () => ({
-      store,
-      profile,
-      transactions,
-      budgets,
-      goals,
-      activity,
-      loading,
-      error,
-      reload,
-      saveProfile,
-      addTransaction,
-      editTransaction,
-      removeTransaction,
-      saveBudget,
-      removeBudget,
-      addGoal,
-      editGoal,
-      removeGoal,
-      moveGoalMoney,
-      clearAllData,
-      deleteAccount,
-    }),
-    [
-      store,
-      profile,
-      transactions,
-      budgets,
-      goals,
-      activity,
-      loading,
-      error,
-      reload,
-      saveProfile,
-      addTransaction,
-      editTransaction,
-      removeTransaction,
-      saveBudget,
-      removeBudget,
-      addGoal,
-      editGoal,
-      removeGoal,
-      moveGoalMoney,
-      clearAllData,
-      deleteAccount,
-    ],
-  )
-
-  return <DataContext.Provider value={value}>{children}</DataContext.Provider>
+  return <DataContext.Provider value={api}>{children}</DataContext.Provider>
 }
 
-export function useData(): DataContextValue {
+export function useData(): DataApi {
   const ctx = useContext(DataContext)
-  if (!ctx) throw new Error('useData must be used inside DataProvider')
+  if (!ctx) throw new Error('useData doit être utilisé dans DataProvider')
   return ctx
+}
+
+export function useCurrentMonth(): string {
+  return currentMonthKey()
 }
