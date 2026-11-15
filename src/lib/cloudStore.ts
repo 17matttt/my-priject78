@@ -4,7 +4,6 @@ import type {
   BudgetInput,
   GoalActivity,
   GoalInput,
-  Profile,
   SavingsGoal,
   Store,
   Transaction,

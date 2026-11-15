@@ -16,8 +16,7 @@ import {
   formatCompact,
   formatMoney,
   formatMonth,
-  formatMonthShort,
-  formatPercent,
+  formatMonthShort,  formatPercent,
   shiftMonth,
 } from '../lib/format'
 import { DEFAULT_CURRENCY, categoryColor, categoryLabel } from '../lib/constants'

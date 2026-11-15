@@ -52,7 +52,7 @@ async function hashPassword(password: string, saltHex: string): Promise<string> 
   const encoder = new TextEncoder()
   const key = await subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits'])
   const bits = await subtle.deriveBits(
-    { name: 'PBKDF2', salt: fromHex(saltHex), iterations: 150_000, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt: fromHex(saltHex) as unknown as BufferSource, iterations: 150_000, hash: 'SHA-256' },
     key,
     256,
   )
