@@ -1,321 +1,253 @@
 import { useMemo, useState } from 'react'
-import { BarChart3, TrendingUp } from 'lucide-react'
 import { useData } from '../context/DataContext'
-import { Badge, EmptyState, MonthNav, PageHead, Progress } from '../components/UI'
-import { Donut, MonthlyBars, RateLine, type DonutSlice, type TrendPoint } from '../components/Charts'
 import {
+  balanceSeries,
   categoryBreakdown,
-  lastMonths,
-  monthlySeries,
-  percentChange,
+  monthlyComparison,
+  monthlyHistory,
   savingsRate,
   totalsFor,
 } from '../lib/analytics'
+import { categoryById } from '../lib/constants'
 import {
-  currentMonthKey,
-  formatCompact,
-  formatMoney,
-  formatMonth,
+  RANGES,
+  daysBetween,
   formatPercent,
-  shiftMonth,
+  rangeStart,
+  todayIso,
+  type RangeKey,
 } from '../lib/format'
-import { DEFAULT_CURRENCY, categoryColor, categoryLabel } from '../lib/constants'
+import { AreaChart, BarsChart, CategoryBars, DonutChart } from '../components/Charts'
+import { Icon } from '../components/Icon'
+import { EmptyState, SectionHead, Segmented } from '../components/UI'
 
 export default function Analytics() {
-  const { profile, transactions, loading } = useData()
+  const { data, money } = useData()
+  const [range, setRange] = useState<RangeKey>('6m')
 
-  const currency = profile?.currency ?? DEFAULT_CURRENCY
-  const masked = profile?.privacy_mode ?? false
+  const from = rangeStart(range)
+  const to = todayIso()
 
-  const [month, setMonth] = useState(currentMonthKey())
+  const view = useMemo(() => {
+    const totals = totalsFor(data.transactions, from, to)
+    const rate = savingsRate(totals.income, totals.expense)
+    const days = Math.max(1, daysBetween(from, to) + 1)
+    const cats = categoryBreakdown(data.transactions, from, to, 'expense')
+    const incomeCats = categoryBreakdown(data.transactions, from, to, 'income')
+    const history = monthlyHistory(data.transactions, 12)
+    const balance = balanceSeries(data.transactions, range)
+    const comparison = monthlyComparison(data.transactions, todayIso().slice(0, 7))
+    const biggest = data.transactions
+      .filter((t) => t.type === 'expense' && t.date >= from && t.date <= to)
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 6)
+    const monthsTracked = history.filter((h) => h.income > 0 || h.expense > 0).length
+    const avgIncome = monthsTracked ? history.reduce((s, h) => s + h.income, 0) / monthsTracked : 0
+    const avgExpense = monthsTracked ? history.reduce((s, h) => s + h.expense, 0) / monthsTracked : 0
+    return {
+      totals,
+      rate,
+      avgDaily: totals.expense / days,
+      cats,
+      incomeCats,
+      history,
+      balance,
+      comparison,
+      biggest,
+      avgIncome,
+      avgExpense,
+      monthsTracked,
+    }
+  }, [data.transactions, from, to, range])
 
-  const months = useMemo(() => lastMonths(6, month), [month])
-  const series = useMemo<TrendPoint[]>(() => {
-    const points = monthlySeries(transactions, months)
-    return points.map((point) => ({
-      label: formatMonth(point.month, 'short'),
-      income: point.income,
-      expense: point.expense,
-    }))
-  }, [transactions, months])
+  const hasData = data.transactions.length > 0
 
-  const current = useMemo(() => totalsFor(transactions, month), [transactions, month])
-  const previousMonth = shiftMonth(month, -1)
-  const previous = useMemo(() => totalsFor(transactions, previousMonth), [transactions, previousMonth])
-
-  const breakdown = useMemo(
-    () => categoryBreakdown(transactions, month, 'expense'),
-    [transactions, month],
-  )
-
-  const slices = useMemo<DonutSlice[]>(
-    () =>
-      breakdown.slice(0, 7).map((slice) => ({
-        label: categoryLabel(slice.category),
-        value: slice.total,
-        color: categoryColor(slice.category),
-      })),
-    [breakdown],
-  )
-
-  const rateNow = savingsRate(current.income, current.expense)
-  const rateBefore = savingsRate(previous.income, previous.expense)
-
-  const rateValues = useMemo(() => {
-    const points = monthlySeries(transactions, months)
-    return points.map((point) => savingsRate(point.income, point.expense))
-  }, [transactions, months])
-
-  const comparisons = [
-    { label: 'Income', now: current.income, before: previous.income, good: 'up' as const },
-    { label: 'Expenses', now: current.expense, before: previous.expense, good: 'down' as const },
-    { label: 'Net saved', now: current.net, before: previous.net, good: 'up' as const },
-  ]
-
-  const hasData = transactions.length > 0
+  if (!hasData) {
+    return (
+      <div className="page">
+        <header className="page-head">
+          <div>
+            <p className="eyebrow">Analyses</p>
+            <h1 className="page-title">Votre évolution financière</h1>
+            <p className="page-sub">Les graphiques apparaissent dès la première transaction enregistrée.</p>
+          </div>
+        </header>
+        <EmptyState
+          icon="chart"
+          title="Aucune donnée à analyser"
+          text="Ajoutez vos revenus et dépenses pour visualiser vos tendances mensuelles, votre taux d’épargne et vos postes de dépense."
+        />
+      </div>
+    )
+  }
 
   return (
-    <div className="stack">
-      <PageHead
-        eyebrow="Insight"
-        title="Analytics"
-        sub="Six-month trends, category concentration and the rate you actually save."
-        actions={
-          <MonthNav
-            label={formatMonth(month)}
-            onPrev={() => setMonth(shiftMonth(month, -1))}
-            onNext={() => setMonth(shiftMonth(month, 1))}
-            nextDisabled={month >= currentMonthKey()}
-            onReset={() => setMonth(currentMonthKey())}
-          />
-        }
+    <div className="page">
+      <header className="page-head">
+        <div>
+          <p className="eyebrow">Analyses</p>
+          <h1 className="page-title">Votre évolution financière</h1>
+          <p className="page-sub">Tendances, répartition et comparaisons calculées sur vos données réelles.</p>
+        </div>
+      </header>
+
+      <Segmented
+        value={range}
+        onChange={(value) => setRange(value as RangeKey)}
+        options={RANGES.map((r) => ({ value: r.id, label: r.label }))}
       />
 
-      {loading ? (
-        <div className="card skeleton" style={{ height: 240 }} />
-      ) : !hasData ? (
-        <section className="card">
-          <div className="card-pad">
-            <EmptyState
-              icon={<BarChart3 size={20} />}
-              title="Analytics appear with your first transaction"
-              text="Record income and expenses and VAULT builds the monthly comparison, category breakdown and savings rate automatically."
-            />
+      <section className="grid grid-4">
+        <div className="card kpi">
+          <span className="stat-label">Revenus</span>
+          <span className="kpi-value tnum pos">{money(view.totals.income)}</span>
+          <span className="stat-foot muted">{view.monthsTracked} mois analysés</span>
+        </div>
+        <div className="card kpi">
+          <span className="stat-label">Dépenses</span>
+          <span className="kpi-value tnum neg">{money(view.totals.expense)}</span>
+          <span className="stat-foot muted">{money(view.avgDaily)} / jour en moyenne</span>
+        </div>
+        <div className="card kpi">
+          <span className="stat-label">Épargne nette</span>
+          <span className="kpi-value tnum">{money(view.totals.net)}</span>
+          <span className="stat-foot muted">Revenus − dépenses</span>
+        </div>
+        <div className="card kpi">
+          <span className="stat-label">Taux d’épargne</span>
+          <span className="kpi-value tnum">{formatPercent(view.rate, 1)}</span>
+          <span className="stat-foot muted">Part des revenus non dépensée</span>
+        </div>
+      </section>
+
+      <section className="card">
+        <SectionHead
+          title="Évolution du solde"
+          subtitle={`Cumul net sur la période · ${RANGES.find((r) => r.id === range)?.label}`}
+        />
+        <AreaChart
+          points={view.balance.map((p) => ({ label: p.label, value: p.value }))}
+          formatValue={(v) => money(v)}
+          height={240}
+        />
+      </section>
+
+      <section className="grid grid-main">
+        <div className="card">
+          <SectionHead title="Revenus et dépenses" subtitle="12 derniers mois" />
+          <BarsChart
+            points={view.history.map((h) => ({ label: h.label, income: h.income, expense: h.expense }))}
+            formatValue={(v) => money(v)}
+            height={230}
+          />
+          <div className="legend">
+            <span className="legend-item">
+              <i className="legend-dot" style={{ background: 'var(--accent)' }} />
+              Revenus
+            </span>
+            <span className="legend-item">
+              <i className="legend-dot" style={{ background: '#8FB8FF' }} />
+              Dépenses
+            </span>
           </div>
-        </section>
-      ) : (
-        <>
-          <div className="grid g-3">
-            <div className="stat">
-              <div className="stat-top">
-                <span className="stat-label">Income · {formatMonth(month, 'short')}</span>
-              </div>
-              <div className="stat-value tnum" style={{ color: 'var(--accent)' }}>
-                {formatMoney(current.income, currency, { masked })}
-              </div>
-              <div className="stat-foot">
-                <span>vs {formatMoney(previous.income, currency, { masked })} previous</span>
-              </div>
+        </div>
+
+        <div className="card">
+          <SectionHead title="Répartition des dépenses" subtitle="Sur la période sélectionnée" />
+          {view.cats.length ? (
+            <>
+              <DonutChart
+                slices={view.cats.slice(0, 7).map((c) => ({ id: c.id, label: c.label, value: c.value, color: c.color }))}
+                centerLabel={money(view.totals.expense)}
+                formatValue={(v) => money(v)}
+              />
+              <CategoryBars slices={view.cats.slice(0, 5)} formatValue={(v) => money(v)} />
+            </>
+          ) : (
+            <p className="hint">Aucune dépense sur cette période.</p>
+          )}
+        </div>
+      </section>
+
+      <section className="grid grid-main">
+        <div className="card">
+          <SectionHead title="Moyennes mensuelles" subtitle={`Basées sur ${view.monthsTracked} mois d’activité`} />
+          <div className="summary-strip">
+            <div className="summary-item">
+              <span className="stat-label">Revenu moyen</span>
+              <span className="kpi-value tnum pos">{money(view.avgIncome)}</span>
             </div>
-
-            <div className="stat">
-              <div className="stat-top">
-                <span className="stat-label">Expenses · {formatMonth(month, 'short')}</span>
-              </div>
-              <div className="stat-value tnum">
-                {formatMoney(current.expense, currency, { masked })}
-              </div>
-              <div className="stat-foot">
-                <span>vs {formatMoney(previous.expense, currency, { masked })} previous</span>
-              </div>
+            <div className="summary-item">
+              <span className="stat-label">Dépense moyenne</span>
+              <span className="kpi-value tnum neg">{money(view.avgExpense)}</span>
             </div>
-
-            <div className="stat">
-              <div className="stat-top">
-                <span className="stat-label">Savings rate</span>
-                <span className="stat-icon lime">
-                  <TrendingUp size={15} />
-                </span>
-              </div>
-              <div className="stat-value tnum">{formatPercent(rateNow, 1)}</div>
-              <div className="stat-foot">
-                <span>
-                  {previous.income > 0 || previous.expense > 0
-                    ? `previous month ${formatPercent(rateBefore, 1)}`
-                    : 'no previous month data'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <section className="card">
-            <div className="card-head">
-              <div>
-                <h2 className="card-title">Income vs expenses</h2>
-                <p className="card-sub">Last six months · hover a bar for exact figures</p>
-              </div>
-              <div className="row" style={{ gap: 14 }}>
-                <span className="row" style={{ gap: 6, fontSize: 11.5, color: 'var(--muted)' }}>
-                  <span className="dot" style={{ background: 'var(--accent)' }} />
-                  Income
-                </span>
-                <span className="row" style={{ gap: 6, fontSize: 11.5, color: 'var(--muted)' }}>
-                  <span className="dot" style={{ background: '#4a4f5c' }} />
-                  Expenses
-                </span>
-              </div>
-            </div>
-            <div className="card-pad">
-              <MonthlyBars points={series} currency={currency} masked={masked} height={250} />
-            </div>
-          </section>
-
-          <div className="grid g-2">
-            <section className="card">
-              <div className="card-head">
-                <div>
-                  <h2 className="card-title">Where it went</h2>
-                  <p className="card-sub">{formatMonth(month)} spending by category</p>
-                </div>
-              </div>
-              <div className="card-pad">
-                <Donut
-                  slices={slices}
-                  total={current.expense}
-                  currency={currency}
-                  masked={masked}
-                  caption="Spent this month"
-                />
-
-                {breakdown.length > 0 ? (
-                  <div className="stack" style={{ gap: 12, marginTop: 20 }}>
-                    {breakdown.slice(0, 6).map((slice) => (
-                      <div key={slice.category}>
-                        <div className="row-between" style={{ marginBottom: 6 }}>
-                          <span className="row" style={{ gap: 8, fontSize: 12.5 }}>
-                            <span
-                              className="dot"
-                              style={{ background: categoryColor(slice.category), width: 8, height: 8 }}
-                            />
-                            {categoryLabel(slice.category)}
-                            <span style={{ color: 'var(--muted-2)' }}>· {slice.count}</span>
-                          </span>
-                          <span className="tnum" style={{ fontSize: 12.5 }}>
-                            {formatMoney(slice.total, currency, { masked })}
-                            <span style={{ color: 'var(--muted-2)', marginLeft: 8 }}>
-                              {formatPercent(slice.share, 0)}
-                            </span>
-                          </span>
-                        </div>
-                        <Progress value={slice.share} />
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="tx-meta" style={{ marginTop: 16 }}>
-                    No expenses recorded in {formatMonth(month)}.
-                  </p>
-                )}
-              </div>
-            </section>
-
-            <div className="stack">
-              <section className="card">
-                <div className="card-head">
-                  <div>
-                    <h2 className="card-title">Month over month</h2>
-                    <p className="card-sub">
-                      {formatMonth(month, 'short')} against {formatMonth(previousMonth, 'short')}
-                    </p>
-                  </div>
-                </div>
-                <div className="card-pad">
-                  <div className="stack" style={{ gap: 4 }}>
-                    {comparisons.map((row) => {
-                      const change = percentChange(row.now, row.before)
-                      const positive = change === null ? null : change >= 0
-                      const good = positive === null ? null : row.good === 'up' ? positive : !positive
-                      return (
-                        <div className="settings-row" key={row.label} style={{ padding: '13px 0' }}>
-                          <div>
-                            <div className="settings-label">{row.label}</div>
-                            <div className="settings-desc tnum">
-                              {formatMoney(row.before, currency, { masked })} →{' '}
-                              {formatMoney(row.now, currency, { masked })}
-                            </div>
-                          </div>
-                          {change === null ? (
-                            <Badge tone="neutral">New</Badge>
-                          ) : (
-                            <Badge tone={good ? 'lime' : 'red'}>
-                              {change >= 0 ? '+' : '−'}
-                              {Math.abs(change).toFixed(1)}%
-                            </Badge>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-
-                  <div className="row-between" style={{ marginTop: 16 }}>
-                    <span className="tx-meta" style={{ margin: 0 }}>
-                      Net this month
-                    </span>
-                    <span
-                      className="tnum"
-                      style={{
-                        fontWeight: 600,
-                        color: current.net >= 0 ? 'var(--accent)' : 'var(--danger)',
-                      }}
-                    >
-                      {formatMoney(current.net, currency, { masked, signed: true })}
-                    </span>
-                  </div>
-                </div>
-              </section>
-
-              <section className="card">
-                <div className="card-head">
-                  <div>
-                    <h2 className="card-title">Savings rate evolution</h2>
-                    <p className="card-sub">Share of income kept, by month</p>
-                  </div>
-                </div>
-                <div className="card-pad">
-                  <RateLine
-                    values={rateValues}
-                    labels={months.map((key) => formatMonth(key, 'short'))}
-                    height={180}
-                  />
-                  <div className="row-between" style={{ marginTop: 10 }}>
-                    <span className="tx-meta" style={{ margin: 0 }}>
-                      Six-month average
-                    </span>
-                    <span className="tnum" style={{ fontSize: 12.5 }}>
-                      {formatPercent(
-                        rateValues.length > 0
-                          ? rateValues.reduce((acc, value) => acc + value, 0) / rateValues.length
-                          : 0,
-                        1,
-                      )}
-                    </span>
-                  </div>
-                </div>
-              </section>
+            <div className="summary-item">
+              <span className="stat-label">Solde moyen</span>
+              <span className="kpi-value tnum">{money(view.avgIncome - view.avgExpense)}</span>
             </div>
           </div>
+          <div className="divider" />
+          <SectionHead title="Comparaison mensuelle" subtitle={`${view.comparison.prevMonthLabel} → mois en cours`} />
+          <ul className="info-list">
+            <li className="info-row">
+              <span>Revenus</span>
+              <span className="tnum">{money(view.comparison.current.income)}</span>
+            </li>
+            <li className="info-row">
+              <span>Dépenses</span>
+              <span className="tnum">{money(view.comparison.current.expense)}</span>
+            </li>
+            <li className="info-row">
+              <span>Variation des dépenses</span>
+              <span className={`tnum ${(view.comparison.expenseChange ?? 0) > 0 ? 'neg' : 'pos'}`}>
+                {view.comparison.expenseChange === null
+                  ? '—'
+                  : `${view.comparison.expenseChange > 0 ? '+' : ''}${formatPercent(view.comparison.expenseChange, 1)}`}
+              </span>
+            </li>
+            <li className="info-row">
+              <span>Variation des revenus</span>
+              <span className={`tnum ${(view.comparison.incomeChange ?? 0) >= 0 ? 'pos' : 'neg'}`}>
+                {view.comparison.incomeChange === null
+                  ? '—'
+                  : `${view.comparison.incomeChange > 0 ? '+' : ''}${formatPercent(view.comparison.incomeChange, 1)}`}
+              </span>
+            </li>
+          </ul>
+        </div>
 
-          <p className="tx-meta" style={{ textAlign: 'center' }}>
-            All figures are computed from your recorded transactions — largest monthly income{' '}
-            {formatCompact(
-              Math.max(...series.map((point) => point.income), 0),
-              currency,
-              masked,
-            )}
-            .
-          </p>
-        </>
-      )}
+        <div className="card">
+          <SectionHead title="Plus grosses dépenses" subtitle="Sur la période sélectionnée" />
+          {view.biggest.length ? (
+            <ul className="tx-list">
+              {view.biggest.map((t) => {
+                const cat = categoryById(t.category)
+                return (
+                  <li key={t.id} className="tx-row">
+                    <span className="tx-icon" style={{ color: cat.color, background: `${cat.color}1A` }}>
+                      <Icon name={cat.icon} size={16} />
+                    </span>
+                    <div className="tx-main">
+                      <span className="tx-title">{t.name}</span>
+                      <span className="tx-meta">{cat.label}</span>
+                    </div>
+                    <span className="tnum neg">−{money(t.amount)}</span>
+                  </li>
+                )
+              })}
+            </ul>
+          ) : (
+            <p className="hint">Aucune dépense sur cette période.</p>
+          )}
+          {view.incomeCats.length ? (
+            <>
+              <div className="divider" />
+              <SectionHead title="Sources de revenus" subtitle="Répartition des entrées" />
+              <CategoryBars slices={view.incomeCats.slice(0, 4)} formatValue={(v) => money(v)} />
+            </>
+          ) : null}
+        </div>
+      </section>
     </div>
   )
 }
