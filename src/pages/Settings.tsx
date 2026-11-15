@@ -1,316 +1,268 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Download, LogOut, ShieldCheck, Trash2, User } from 'lucide-react'
-import { useAuth } from '../context/AuthContext'
+import { useMemo, useRef, useState } from 'react'
 import { useData } from '../context/DataContext'
-import { Badge, ConfirmDialog, Field, PageHead, useToast } from '../components/UI'
-import { CURRENCIES, DEFAULT_CURRENCY, categoryLabel } from '../lib/constants'
-import { formatDate, formatMoney } from '../lib/format'
-
-function csvCell(value: string | number): string {
-  const text = String(value)
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
-}
-
-function downloadFile(name: string, contents: string) {
-  const blob = new Blob([contents], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = name
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
-}
+import { CURRENCIES } from '../lib/constants'
+import { downloadFile, formatDate, todayIso } from '../lib/format'
+import { parseImport, serialize, transactionsToCsv } from '../lib/storage'
+import { Icon } from '../components/Icon'
+import { Badge, ConfirmDialog, Field, SectionHead, Toggle, useToast } from '../components/UI'
 
 export default function Settings() {
-  const { user, mode, signOut } = useAuth()
-  const { profile, transactions, saveProfile, clearAllData, deleteAccount } = useData()
-  const notify = useToast()
+  const { data, updateProfile, loadDemo, clearAll, importData } = useData()
+  const { toast } = useToast()
+  const fileRef = useRef<HTMLInputElement>(null)
 
-  const [name, setName] = useState('')
-  const [currency, setCurrency] = useState(DEFAULT_CURRENCY)
-  const [privacy, setPrivacy] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [confirmClear, setConfirmClear] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [name, setName] = useState(data.profile.name)
+  const [confirm, setConfirm] = useState<'reset' | 'demo' | 'quit' | null>(null)
 
-  useEffect(() => {
-    if (!profile) return
-    setName(profile.full_name ?? '')
-    setCurrency(profile.currency || DEFAULT_CURRENCY)
-    setPrivacy(profile.privacy_mode)
-  }, [profile])
+  const storageSize = useMemo(() => {
+    const bytes = new Blob([serialize(data)]).size
+    return bytes > 1024 ? `${(bytes / 1024).toFixed(1)} Ko` : `${bytes} o`
+  }, [data])
 
-  const dirty = useMemo(() => {
-    if (!profile) return false
-    return (
-      name !== (profile.full_name ?? '') ||
-      currency !== profile.currency ||
-      privacy !== profile.privacy_mode
-    )
-  }, [profile, name, currency, privacy])
-
-  const save = async () => {
-    setSaving(true)
-    try {
-      await saveProfile({ full_name: name.trim() || null, currency, privacy_mode: privacy })
-      notify('Preferences saved.', 'ok')
-    } catch (err) {
-      notify(err instanceof Error ? err.message : 'Could not save your profile.', 'err')
-    } finally {
-      setSaving(false)
-    }
+  const counts = {
+    transactions: data.transactions.length,
+    goals: data.goals.length,
+    subscriptions: data.subscriptions.length,
+    budgets: data.budgets.length,
+    events: data.events.length,
   }
 
   const exportCsv = () => {
-    if (transactions.length === 0) {
-      notify('There is nothing to export yet.', 'info')
+    if (!data.transactions.length) {
+      toast('Aucune transaction à exporter', 'warn')
       return
     }
-    const header = ['Date', 'Type', 'Category', 'Description', 'Amount', 'Currency']
-    const rows = [...transactions]
-      .sort((a, b) => (a.occurred_on < b.occurred_on ? 1 : -1))
-      .map((tx) => [
-        tx.occurred_on,
-        tx.type,
-        categoryLabel(tx.category),
-        tx.description ?? '',
-        tx.type === 'expense' ? -tx.amount : tx.amount,
-        currency,
-      ])
-    const csv = [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\n')
-    downloadFile(`vault-transactions-${new Date().toISOString().slice(0, 10)}.csv`, csv)
-    notify(`Exported ${transactions.length} transactions.`, 'ok')
+    downloadFile(`vault-transactions-${todayIso()}.csv`, transactionsToCsv(data.transactions), 'text/csv;charset=utf-8')
+    toast('Export CSV téléchargé')
   }
 
-  const runClear = async () => {
-    setBusy(true)
-    try {
-      await clearAllData()
-      notify('All financial data cleared.', 'ok')
-      setConfirmClear(false)
-    } catch (err) {
-      notify(err instanceof Error ? err.message : 'Could not clear your data.', 'err')
-    } finally {
-      setBusy(false)
-    }
+  const exportJson = () => {
+    downloadFile(`vault-sauvegarde-${todayIso()}.json`, serialize(data), 'application/json')
+    toast('Sauvegarde JSON téléchargée')
   }
 
-  const runDelete = async () => {
-    setBusy(true)
+  const onImport = async (file: File | null) => {
+    if (!file) return
     try {
-      const result = await deleteAccount()
-      notify(
-        result.authRemoved
-          ? 'Your account and data were deleted.'
-          : 'Your data was deleted. Remove the sign-in record in your Supabase dashboard to finish.',
-        result.authRemoved ? 'ok' : 'info',
-      )
-      setConfirmDelete(false)
-    } catch (err) {
-      notify(err instanceof Error ? err.message : 'Could not delete your account.', 'err')
-    } finally {
-      setBusy(false)
+      const text = await file.text()
+      const next = parseImport(text)
+      importData(next)
+      setName(next.profile.name)
+      toast('Sauvegarde importée')
+    } catch {
+      toast('Fichier invalide : sauvegarde JSON attendue', 'danger')
     }
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  const confirmAction = () => {
+    if (confirm === 'reset' || confirm === 'quit') {
+      clearAll()
+      setName('')
+      toast(confirm === 'quit' ? 'Mode démonstration quitté' : 'Toutes les données ont été effacées')
+    }
+    if (confirm === 'demo') {
+      loadDemo()
+      toast('Données de démonstration chargées')
+    }
+    setConfirm(null)
   }
 
   return (
-    <div className="stack">
-      <PageHead
-        eyebrow="Preferences"
-        title="Settings"
-        sub="Your profile, currency, privacy and data — all under your control."
-      />
-
-      {mode === 'local' ? (
-        <div className="banner">
-          <ShieldCheck size={16} />
-          <span>
-            This build runs in <strong>device-local mode</strong>: your account and data are stored in
-            this browser only. Add the Supabase environment variables to enable cloud accounts and
-            cross-device sync.
-          </span>
+    <div className="page">
+      <header className="page-head">
+        <div>
+          <p className="eyebrow">Compte</p>
+          <h1 className="page-title">Réglages</h1>
+          <p className="page-sub">Profil, devise, confidentialité et gestion de vos données locales.</p>
         </div>
-      ) : null}
+      </header>
 
       <section className="card">
-        <div className="card-head">
-          <div>
-            <h2 className="card-title">Profile</h2>
-            <p className="card-sub">How VAULT addresses you</p>
+        <SectionHead title="Profil" subtitle="Utilisé pour personnaliser votre espace" />
+        <div className="settings-grid">
+          <Field label="Nom affiché">
+            <input
+              className="input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Votre nom"
+              maxLength={40}
+            />
+          </Field>
+          <div className="settings-inline">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                updateProfile({ name: name.trim() })
+                toast('Profil mis à jour')
+              }}
+            >
+              Enregistrer
+            </button>
+            <span className="muted">Aucun compte requis : ces informations restent sur cet appareil.</span>
           </div>
-          <Badge tone={mode === 'cloud' ? 'lime' : 'neutral'}>
-            {mode === 'cloud' ? 'Cloud account' : 'Device-local'}
-          </Badge>
         </div>
-        <div className="card-pad">
-          <div className="form-grid">
-            <Field label="Display name" htmlFor="set-name">
-              <input
-                id="set-name"
-                className="input"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Your name"
-                maxLength={60}
-              />
-            </Field>
-            <Field label="Email" htmlFor="set-email">
-              <input id="set-email" className="input" value={user?.email ?? ''} readOnly disabled />
-            </Field>
-          </div>
+      </section>
 
-          <div className="settings-row" style={{ marginTop: 18 }}>
-            <div>
-              <div className="settings-label">Default currency</div>
-              <div className="settings-desc">
-                Used for every amount, chart and export in the app.
-              </div>
-            </div>
+      <section className="card">
+        <SectionHead title="Devise" subtitle="Tous les montants sont convertis à l’affichage" />
+        <div className="settings-grid">
+          <Field label="Devise principale" hint="EUR par défaut">
             <select
               className="select"
-              style={{ width: 200 }}
-              value={currency}
-              onChange={(event) => setCurrency(event.target.value)}
-              aria-label="Default currency"
+              value={data.profile.currency}
+              onChange={(e) => {
+                updateProfile({ currency: e.target.value })
+                toast(`Devise : ${e.target.value}`)
+              }}
             >
-              {CURRENCIES.map((option) => (
-                <option key={option.code} value={option.code}>
-                  {option.code} — {option.symbol} {option.label}
+              {CURRENCIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.label} ({c.symbol})
                 </option>
               ))}
             </select>
-          </div>
-
-          <div className="settings-row">
-            <div>
-              <div className="settings-label">Privacy mode</div>
-              <div className="settings-desc">
-                Hide every amount behind dots. Totals stay accurate, screens stay private.
-              </div>
-            </div>
-            <button
-              type="button"
-              className={`switch ${privacy ? 'on' : ''}`}
-              role="switch"
-              aria-checked={privacy}
-              aria-label="Privacy mode"
-              onClick={() => setPrivacy((value) => !value)}
-            />
-          </div>
-
-          <div className="row" style={{ justifyContent: 'flex-end', marginTop: 16 }}>
-            <button type="button" className="btn btn-primary" onClick={save} disabled={!dirty || saving}>
-              {saving ? 'Saving…' : 'Save preferences'}
-            </button>
-          </div>
+          </Field>
         </div>
       </section>
 
       <section className="card">
-        <div className="card-head">
+        <SectionHead title="Confidentialité" subtitle="Masquez vos montants en un geste" />
+        <div className="setting-row">
           <div>
-            <h2 className="card-title">Data</h2>
-            <p className="card-sub">
-              {transactions.length} transactions ·{' '}
-              {transactions.length > 0
-                ? `latest ${formatDate(
-                    [...transactions].sort((a, b) => (a.occurred_on < b.occurred_on ? 1 : -1))[0]
-                      .occurred_on,
-                  )}`
-                : 'nothing recorded yet'}
+            <span className="setting-title">Mode discret</span>
+            <span className="muted">Remplace tous les montants par des puces à l’écran.</span>
+          </div>
+          <Toggle
+            checked={data.profile.privacyMode}
+            onChange={(value) => updateProfile({ privacyMode: value })}
+            label="Activer le mode discret"
+          />
+        </div>
+        <div className="setting-row">
+          <div>
+            <span className="setting-title">Stockage local uniquement</span>
+            <span className="muted">
+              Vos données ne quittent jamais ce navigateur. Elles sont conservées dans le stockage local du navigateur
+              ({storageSize} actuellement).
+            </span>
+          </div>
+          <Badge tone="ok">Local</Badge>
+        </div>
+      </section>
+
+      <section className="card">
+        <SectionHead title="Vos données" subtitle={`${counts.transactions} transactions · ${counts.goals} objectifs · ${counts.subscriptions} abonnements · ${counts.budgets} budgets · ${counts.events} événements`} />
+        <div className="data-actions">
+          <button type="button" className="btn btn-quiet" onClick={exportCsv}>
+            <Icon name="download" size={15} />
+            Exporter les transactions (CSV)
+          </button>
+          <button type="button" className="btn btn-quiet" onClick={exportJson}>
+            <Icon name="download" size={15} />
+            Sauvegarde complète (JSON)
+          </button>
+          <button type="button" className="btn btn-quiet" onClick={() => fileRef.current?.click()}>
+            <Icon name="upload" size={15} />
+            Importer une sauvegarde
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json,.json"
+            className="sr-only"
+            onChange={(e) => onImport(e.target.files?.[0] ?? null)}
+          />
+        </div>
+        <p className="hint">
+          L’import remplace l’intégralité des données actuelles par le contenu du fichier. Exportez d’abord une
+          sauvegarde si vous souhaitez conserver l’état actuel.
+        </p>
+      </section>
+
+      <section className="card">
+        <SectionHead
+          title="Mode démonstration"
+          subtitle="Des données d’exemple clairement identifiées pour découvrir l’application"
+        />
+        {data.demo ? (
+          <div className="setting-row">
+            <div>
+              <span className="setting-title">
+                Démonstration active <Badge tone="accent">Données fictives</Badge>
+              </span>
+              <span className="muted">
+                Les montants affichés sont des exemples générés pour la visite guidée, pas vos données réelles.
+              </span>
+            </div>
+            <button type="button" className="btn btn-quiet" onClick={() => setConfirm('quit')}>
+              Quitter la démo
+            </button>
+          </div>
+        ) : (
+          <div className="setting-row">
+            <div>
+              <span className="setting-title">Charger la démonstration</span>
+              <span className="muted">Remplace vos données actuelles par un jeu d’exemple daté et cohérent.</span>
+            </div>
+            <button type="button" className="btn btn-quiet" onClick={() => setConfirm('demo')}>
+              Charger la démo
+            </button>
+          </div>
+        )}
+      </section>
+
+      <section className="card danger-card">
+        <SectionHead title="Zone sensible" subtitle="Ces actions sont définitives sur cet appareil" />
+        <div className="setting-row">
+          <div>
+            <span className="setting-title">Réinitialiser toutes les données</span>
+            <span className="muted">
+              Supprime transactions, budgets, objectifs, abonnements et événements. Aucune récupération possible.
+            </span>
+          </div>
+          <button type="button" className="btn btn-danger" onClick={() => setConfirm('reset')}>
+            <Icon name="trash" size={15} />
+            Tout effacer
+          </button>
+        </div>
+      </section>
+
+      <section className="card muted-card">
+        <div className="about-row">
+          <span className="brand-mark brand-mark-sm">V</span>
+          <div>
+            <strong>VAULT</strong>
+            <p className="muted">
+              YOUR MONEY. YOUR CONTROL. · Application locale, sans compte ni connexion bancaire. Dernière mise à jour
+              des données : {formatDate(todayIso(), 'long')}.
             </p>
           </div>
         </div>
-        <div className="card-pad">
-          <div className="settings-row">
-            <div>
-              <div className="settings-label">Export as CSV</div>
-              <div className="settings-desc">
-                A spreadsheet-ready file of every transaction in {currency}.
-              </div>
-            </div>
-            <button type="button" className="btn btn-ghost" onClick={exportCsv}>
-              <Download />
-              Export CSV
-            </button>
-          </div>
-
-          <div className="settings-row">
-            <div>
-              <div className="settings-label">Clear financial data</div>
-              <div className="settings-desc">
-                Deletes all transactions, budgets and goals. Your account stays open.
-              </div>
-            </div>
-            <button type="button" className="btn btn-quiet" onClick={() => setConfirmClear(true)}>
-              Clear data
-            </button>
-          </div>
-        </div>
       </section>
 
-      <section className="card danger-zone">
-        <div className="card-head">
-          <div>
-            <h2 className="card-title">Account</h2>
-            <p className="card-sub">Session and permanent removal</p>
-          </div>
-        </div>
-        <div className="card-pad">
-          <div className="settings-row">
-            <div>
-              <div className="settings-label">Sign out</div>
-              <div className="settings-desc">End this session on this device.</div>
-            </div>
-            <button type="button" className="btn btn-quiet" onClick={() => void signOut()}>
-              <LogOut />
-              Sign out
-            </button>
-          </div>
-
-          <div className="settings-row">
-            <div>
-              <div className="settings-label">Delete account</div>
-              <div className="settings-desc">
-                Permanently removes your profile, transactions, budgets and goals.
-              </div>
-            </div>
-            <button type="button" className="btn btn-danger" onClick={() => setConfirmDelete(true)}>
-              <Trash2 />
-              Delete account
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <div className="row" style={{ gap: 8, color: 'var(--muted-2)', fontSize: 11.5 }}>
-        <User size={13} />
-        <span>
-          Signed in as {user?.email} · {formatMoney(0, currency)} sample formatting in {currency}
-        </span>
-      </div>
-
       <ConfirmDialog
-        open={confirmClear}
-        title="Clear all financial data?"
-        text="Every transaction, budget and savings goal will be permanently deleted. Your profile and login stay intact."
-        confirmLabel="Clear everything"
-        busy={busy}
-        onConfirm={runClear}
-        onClose={() => setConfirmClear(false)}
-      />
-
-      <ConfirmDialog
-        open={confirmDelete}
-        title="Delete your account?"
-        text="This removes your profile and all financial data. This action cannot be undone."
-        confirmLabel="Delete account"
-        busy={busy}
-        onConfirm={runDelete}
-        onClose={() => setConfirmDelete(false)}
+        open={confirm !== null}
+        title={
+          confirm === 'demo'
+            ? 'Charger les données de démonstration ?'
+            : confirm === 'quit'
+              ? 'Quitter le mode démonstration ?'
+              : 'Effacer toutes les données ?'
+        }
+        message={
+          confirm === 'demo'
+            ? 'Vos données actuelles seront remplacées par un jeu de données fictives clairement identifié.'
+            : confirm === 'quit'
+              ? 'Les données fictives seront supprimées afin de démarrer avec un espace vide et propre.'
+              : 'Transactions, budgets, objectifs, abonnements et événements seront définitivement supprimés de cet appareil.'
+        }
+        confirmLabel={confirm === 'demo' ? 'Charger' : 'Confirmer'}
+        tone="danger"
+        onConfirm={confirmAction}
+        onCancel={() => setConfirm(null)}
       />
     </div>
   )
