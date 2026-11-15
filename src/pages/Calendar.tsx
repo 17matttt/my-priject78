@@ -1,12 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useData } from '../context/DataContext'
 import { agendaBetween, type AgendaItem } from '../lib/analytics'
-import { EVENT_KINDS, eventKind } from '../lib/constants'
+import { EVENT_KINDS } from '../lib/constants'
 import {
   currentMonthKey,
   formatDate,
   formatMonth,
-  monthKeyOf,
   shiftMonth,
   todayIso,
 } from '../lib/format'
@@ -340,7 +339,7 @@ export default function CalendarPage() {
 
 function eventKindLabel(item: AgendaItem): string {
   if (item.source === 'subscription') return 'Abonnement'
-  if (item.source === 'recurring') return 'Transaction récurrente'
+  if (item.kind === 'recurring') return 'Transaction récurrente'
   if (item.source === 'goal') return 'Échéance d’épargne'
   const kind = EVENT_KINDS.find((k) => k.id === item.kind)
   return kind ? kind.label : 'Événement'

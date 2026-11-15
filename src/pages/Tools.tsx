@@ -172,7 +172,7 @@ export default function Tools() {
       <Segmented
         value={tool}
         onChange={(value) => setTool(value as ToolId)}
-        options={TOOLS.map((t) => ({ value: t.id, label: t.label }))}
+        options={TOOLS.map((t) => ({ id: t.id, label: t.label }))}
       />
 
       <section className="card tool-card">

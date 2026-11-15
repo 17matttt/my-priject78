@@ -259,7 +259,9 @@ export default function Savings() {
                   </div>
                   <div className="goal-meta-row">
                     <span>Rythme actuel</span>
-                    <span className="tnum">{money(projection.pace)} / mois</span>
+                    <span className="tnum">
+                      {projection.pace == null ? '—' : `${money(projection.pace)} / mois`}
+                    </span>
                   </div>
                   <div className="goal-meta-row">
                     <span>Fin estimée</span>

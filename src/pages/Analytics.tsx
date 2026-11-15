@@ -94,7 +94,7 @@ export default function Analytics() {
       <Segmented
         value={range}
         onChange={(value) => setRange(value as RangeKey)}
-        options={RANGES.map((r) => ({ value: r.id, label: r.label }))}
+        options={RANGES.map((r) => ({ id: r.id, label: r.label }))}
       />
 
       <section className="grid grid-4">

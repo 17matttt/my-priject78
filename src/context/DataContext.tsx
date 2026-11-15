@@ -9,7 +9,6 @@ import {
 } from 'react'
 import type {
   CalendarEvent,
-  Goal,
   MonthBudget,
   Profile,
   Subscription,
