@@ -1,88 +1,86 @@
 export type TxType = 'income' | 'expense'
+export type Recurrence = 'none' | 'weekly' | 'monthly' | 'yearly'
+export type PaymentMethod = 'card' | 'cash' | 'transfer' | 'direct_debit' | 'other'
+export type SubscriptionCycle = 'monthly' | 'yearly'
+export type EventKind = 'bill' | 'income' | 'savings' | 'other'
 
 export interface Transaction {
   id: string
   type: TxType
+  name: string
   amount: number
   category: string
-  description: string | null
-  occurred_on: string
-  created_at: string
+  date: string
+  paymentMethod: PaymentMethod
+  notes: string
+  recurrence: Recurrence
+  createdAt: string
 }
 
-export interface Budget {
-  id: string
-  category: string
-  amount: number
+export interface MonthBudget {
   month: string
-  created_at: string
+  overall: number
+  categories: Record<string, number>
+  updatedAt: string
 }
 
-export interface SavingsGoal {
+export interface GoalContribution {
+  id: string
+  amount: number
+  date: string
+  note: string
+}
+
+export interface Goal {
   id: string
   name: string
-  target_amount: number
-  saved_amount: number
+  target: number
+  saved: number
   deadline: string | null
-  created_at: string
+  icon: string
+  description: string
+  contributions: GoalContribution[]
+  createdAt: string
 }
 
-export interface GoalActivity {
+export interface Subscription {
   id: string
-  goal_id: string
+  name: string
   amount: number
-  note: string | null
-  created_at: string
+  cycle: SubscriptionCycle
+  nextPayment: string
+  category: string
+  description: string
+  active: boolean
+  createdAt: string
+}
+
+export interface CalendarEvent {
+  id: string
+  title: string
+  date: string
+  amount: number | null
+  kind: EventKind
+  paid: boolean
+  notes: string
+  createdAt: string
 }
 
 export interface Profile {
-  id: string
-  full_name: string | null
-  currency: string
-  privacy_mode: boolean
-  created_at: string
-}
-
-export interface TransactionInput {
-  type: TxType
-  amount: number
-  category: string
-  description: string
-  occurred_on: string
-}
-
-export interface GoalInput {
   name: string
-  target_amount: number
-  saved_amount: number
-  deadline: string | null
+  currency: string
+  privacyMode: boolean
 }
 
-export interface BudgetInput {
-  category: string
-  amount: number
-  month: string
+export interface VaultData {
+  version: number
+  profile: Profile
+  transactions: Transaction[]
+  budgets: MonthBudget[]
+  goals: Goal[]
+  subscriptions: Subscription[]
+  events: CalendarEvent[]
+  demo: boolean
 }
 
-export interface Store {
-  mode: 'cloud' | 'local'
-  getProfile(): Promise<Profile>
-  updateProfile(
-    patch: Partial<Pick<Profile, 'full_name' | 'currency' | 'privacy_mode'>>,
-  ): Promise<Profile>
-  listTransactions(): Promise<Transaction[]>
-  createTransaction(input: TransactionInput): Promise<Transaction>
-  updateTransaction(id: string, input: TransactionInput): Promise<Transaction>
-  deleteTransaction(id: string): Promise<void>
-  listBudgets(): Promise<Budget[]>
-  saveBudget(input: BudgetInput, id?: string): Promise<Budget>
-  deleteBudget(id: string): Promise<void>
-  listGoals(): Promise<SavingsGoal[]>
-  createGoal(input: GoalInput): Promise<SavingsGoal>
-  updateGoal(id: string, input: GoalInput): Promise<SavingsGoal>
-  deleteGoal(id: string): Promise<void>
-  addToGoal(id: string, amount: number, note: string): Promise<SavingsGoal>
-  listGoalActivity(): Promise<GoalActivity[]>
-  clearAllData(): Promise<void>
-  deleteAccount(): Promise<{ authRemoved: boolean }>
-}
+export type EntityKind = 'transaction' | 'goal' | 'subscription' | 'event'
