@@ -84,5 +84,5 @@ export interface Store {
   addToGoal(id: string, amount: number, note: string): Promise<SavingsGoal>
   listGoalActivity(): Promise<GoalActivity[]>
   clearAllData(): Promise<void>
-  deleteAccount(): Promise<void>
+  deleteAccount(): Promise<{ authRemoved: boolean }>
 }
