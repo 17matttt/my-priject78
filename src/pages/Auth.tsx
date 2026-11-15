@@ -117,6 +117,13 @@ export default function AuthPage() {
       </aside>
 
       <main className="auth-panel">
+        <div className="brand auth-mobile-brand">
+          <BrandMark />
+          <div>
+            <div className="brand-name">VAULT</div>
+            <div className="brand-tag">Your money. Your control.</div>
+          </div>
+        </div>
         <form className="auth-form" onSubmit={submit}>
           <div>
             <h2 className="auth-title">

@@ -1720,6 +1720,10 @@ textarea {
   padding: 40px 28px;
 }
 
+.auth-mobile-brand {
+  display: none;
+}
+
 .auth-form {
   width: 100%;
   max-width: 372px;
@@ -2157,8 +2161,16 @@ textarea {
   .auth-panel {
     min-height: 100vh;
     padding: 32px 20px;
+    padding-top: 44px;
     align-items: flex-start;
-    padding-top: 56px;
+    flex-direction: column;
+  }
+
+  .auth-mobile-brand {
+    display: flex;
+    width: 100%;
+    max-width: 372px;
+    margin-bottom: 30px;
   }
 
   .form-grid {
