@@ -20,8 +20,15 @@ export default function App() {
           <Route element={<Layout />}>
             <Route index element={<Dashboard />} />
             <Route path="transactions" element={<Transactions />} />
-            <Route path="budgets" element={<Buds />} />
-          </Routes>
+            <Route path="budgets" element={<Budgets />} />
+            <Route path="epargne" element={<Savings />} />
+            <Route path="abonnements" element={<Subscriptions />} />
+            <Route path="calendrier" element={<CalendarPage />} />
+            <Route path="analyses" element={<Analytics />} />
+            <Route path="outils" element={<Tools />} />
+            <Route path="reglages" element={<Settings />} />
+            <Route path="*" element={<Dashboard />} />
+          </Route>
         </Routes>
       </DataProvider>
     </ToastProvider>
