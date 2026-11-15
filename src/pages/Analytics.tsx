@@ -16,7 +16,7 @@ import {
   formatCompact,
   formatMoney,
   formatMonth,
-  formatMonthShort,  formatPercent,
+  formatPercent,
   shiftMonth,
 } from '../lib/format'
 import { DEFAULT_CURRENCY, categoryColor, categoryLabel } from '../lib/constants'
@@ -33,7 +33,7 @@ export default function Analytics() {
   const series = useMemo<TrendPoint[]>(() => {
     const points = monthlySeries(transactions, months)
     return points.map((point) => ({
-      label: formatMonthShort(point.month),
+      label: formatMonth(point.month, 'short'),
       income: point.income,
       expense: point.expense,
     }))
@@ -108,7 +108,7 @@ export default function Analytics() {
           <div className="grid g-3">
             <div className="stat">
               <div className="stat-top">
-                <span className="stat-label">Income · {formatMonthShort(month)}</span>
+                <span className="stat-label">Income · {formatMonth(month, 'short')}</span>
               </div>
               <div className="stat-value tnum" style={{ color: 'var(--accent)' }}>
                 {formatMoney(current.income, currency, { masked })}
@@ -120,7 +120,7 @@ export default function Analytics() {
 
             <div className="stat">
               <div className="stat-top">
-                <span className="stat-label">Expenses · {formatMonthShort(month)}</span>
+                <span className="stat-label">Expenses · {formatMonth(month, 'short')}</span>
               </div>
               <div className="stat-value tnum">
                 {formatMoney(current.expense, currency, { masked })}
@@ -225,7 +225,7 @@ export default function Analytics() {
                   <div>
                     <h2 className="card-title">Month over month</h2>
                     <p className="card-sub">
-                      {formatMonthShort(month)} against {formatMonthShort(previousMonth)}
+                      {formatMonth(month, 'short')} against {formatMonth(previousMonth, 'short')}
                     </p>
                   </div>
                 </div>
@@ -284,7 +284,7 @@ export default function Analytics() {
                 <div className="card-pad">
                   <RateLine
                     values={rateValues}
-                    labels={months.map((key) => formatMonthShort(key))}
+                    labels={months.map((key) => formatMonth(key, 'short'))}
                     height={180}
                   />
                   <div className="row-between" style={{ marginTop: 10 }}>
