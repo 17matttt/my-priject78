@@ -1,335 +1,249 @@
 import { useMemo, useState } from 'react'
-import { AlertTriangle, Pencil, PieChart, Plus, Trash2 } from 'lucide-react'
 import { useData } from '../context/DataContext'
-import {
-  Badge,
-  ConfirmDialog,
-  EmptyState,
-  Field,
-  Modal,
-  MonthNav,
-  PageHead,
-  Progress,
-  useToast,
-} from '../components/UI'
-import { budgetStatuses } from '../lib/analytics'
-import { currentMonthKey, formatMoney, formatMonth, parseAmount, shiftMonth } from '../lib/format'
-import { DEFAULT_CURRENCY, EXPENSE_CATEGORIES, categoryColor, categoryLabel } from '../lib/constants'
-import type { Budget } from '../lib/types'
+import { budgetStatus, monthTotals } from '../lib/analytics'
+import { currentMonthKey, formatMonth, monthKeyOf, shiftMonth, todayIso } from '../lib/format'
+import BudgetModal from '../components/BudgetModal'
+import { Icon } from '../components/Icon'
+import { Badge, ConfirmDialog, EmptyState, Progress, SectionHead } from '../components/UI'
 
 export default function Budgets() {
-  const { profile, budgets, transactions, saveBudget, removeBudget, loading } = useData()
-  const notify = useToast()
-
-  const currency = profile?.currency ?? DEFAULT_CURRENCY
-  const masked = profile?.privacy_mode ?? false
-
+  const { data, money, deleteBudget } = useData()
   const [month, setMonth] = useState(currentMonthKey())
-  const [open, setOpen] = useState(false)
-  const [editing, setEditing] = useState<Budget | null>(null)
-  const [category, setCategory] = useState(EXPENSE_CATEGORIES[0].id)
-  const [amount, setAmount] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [pendingDelete, setPendingDelete] = useState<Budget | null>(null)
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
-  const statuses = useMemo(
-    () => budgetStatuses(budgets, transactions, month),
-    [budgets, transactions, month],
+  const budget = data.budgets.find((b) => b.month === month)
+  const status = useMemo(
+    () => budgetStatus(budget, data.transactions, month),
+    [budget, data.transactions, month],
   )
 
-  const summary = useMemo(() => {
-    const budgeted = statuses.reduce((acc, item) => acc + item.budget.amount, 0)
-    const spent = statuses.reduce((acc, item) => acc + item.spent, 0)
-    return {
-      budgeted,
-      spent,
-      remaining: budgeted - spent,
-      ratio: budgeted > 0 ? (spent / budgeted) * 100 : 0,
-    }
-  }, [statuses])
+  const warnings = status.lines.filter((line) => line.state !== 'ok')
+  const isCurrent = month === currentMonthKey()
 
-  const over = statuses.filter((item) => item.state === 'over')
-  const warn = statuses.filter((item) => item.state === 'warn')
+  const history = useMemo(
+    () =>
+      [...data.budgets]
+        .sort((a, b) => b.month.localeCompare(a.month))
+        .map((b) => {
+          const spent = monthTotals(data.transactions, b.month).expense
+          return {
+            month: b.month,
+            budget: b.overall,
+            spent,
+            percent: b.overall > 0 ? (spent / b.overall) * 100 : 0,
+          }
+        }),
+    [data.budgets, data.transactions],
+  )
 
-  const openNew = () => {
-    setEditing(null)
-    setCategory(EXPENSE_CATEGORIES[0].id)
-    setAmount('')
-    setError(null)
-    setOpen(true)
-  }
-
-  const openEdit = (budget: Budget) => {
-    setEditing(budget)
-    setCategory(budget.category)
-    setAmount(String(budget.amount))
-    setError(null)
-    setOpen(true)
-  }
-
-  const submit = async () => {
-    const value = parseAmount(amount)
-    if (!Number.isFinite(value) || value <= 0) {
-      setError('Enter a monthly limit greater than zero.')
-      return
-    }
-    setBusy(true)
-    setError(null)
-    try {
-      await saveBudget({ category, amount: value, month }, editing?.id)
-      notify(editing ? 'Budget updated.' : 'Budget created.', 'ok')
-      setOpen(false)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save this budget.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const confirmDelete = async () => {
-    if (!pendingDelete) return
-    setBusy(true)
-    try {
-      await removeBudget(pendingDelete.id)
-      notify('Budget removed.', 'ok')
-      setPendingDelete(null)
-    } catch (err) {
-      notify(err instanceof Error ? err.message : 'Could not remove this budget.', 'err')
-    } finally {
-      setBusy(false)
-    }
-  }
+  const monthSpend = monthTotals(data.transactions, month).expense
 
   return (
-    <div className="stack">
-      <PageHead
-        eyebrow="Limits"
-        title="Budgets"
-        sub="Set a monthly ceiling per category and catch overspend before it happens."
-        actions={
-          <button type="button" className="btn btn-primary" onClick={openNew}>
-            <Plus />
-            New budget
+    <div className="page">
+      <header className="page-head">
+        <div>
+          <p className="eyebrow">Pilotage</p>
+          <h1 className="page-title">Budgets</h1>
+          <p className="page-sub">Plafonds mensuels, alertes à 80 % et dépassements suivis en direct.</p>
+        </div>
+        <div className="page-actions">
+          <div className="month-nav">
+            <button type="button" className="icon-btn" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="Mois précédent">
+              <Icon name="chevron-left" size={17} />
+            </button>
+            <span className="month-label">{formatMonth(month)}</span>
+            <button type="button" className="icon-btn" onClick={() => setMonth(shiftMonth(month, 1))} aria-label="Mois suivant">
+              <Icon name="chevron-right" size={17} />
+            </button>
+            {!isCurrent ? (
+              <button type="button" className="btn btn-quiet btn-sm" onClick={() => setMonth(currentMonthKey())}>
+                Aujourd'hui
+              </button>
+            ) : null}
+          </div>
+          <button type="button" className="btn btn-primary" onClick={() => setEditorOpen(true)}>
+            <Icon name="plus" size={15} />
+            <span>{budget ? 'Modifier' : 'Définir le budget'}</span>
           </button>
-        }
-      />
-
-      <div className="row-between">
-        <MonthNav
-          label={formatMonth(month)}
-          onPrev={() => setMonth(shiftMonth(month, -1))}
-          onNext={() => setMonth(shiftMonth(month, 1))}
-          nextDisabled={month >= currentMonthKey()}
-          onReset={() => setMonth(currentMonthKey())}
-        />
-        {month !== currentMonthKey() ? <Badge tone="neutral">Historical month</Badge> : null}
-      </div>
-
-      {over.length > 0 ? (
-        <div className="banner" style={{ borderColor: 'rgba(255,125,107,0.35)', color: 'var(--danger)' }}>
-          <AlertTriangle size={16} />
-          <span>
-            <strong>{over.length}</strong>{' '}
-            {over.length === 1 ? 'budget has' : 'budgets have'} passed 100%:{' '}
-            {over.map((item) => categoryLabel(item.budget.category)).join(', ')}.
-          </span>
         </div>
-      ) : null}
+      </header>
 
-      {warn.length > 0 ? (
-        <div className="banner" style={{ borderColor: 'rgba(240,193,107,0.32)', color: 'var(--warn)' }}>
-          <AlertTriangle size={16} />
-          <span>
-            <strong>{warn.length}</strong>{' '}
-            {warn.length === 1 ? 'budget is' : 'budgets are'} above 80%:{' '}
-            {warn.map((item) => categoryLabel(item.budget.category)).join(', ')}.
-          </span>
-        </div>
-      ) : null}
-
-      {statuses.length > 0 ? (
+      {!budget ? (
         <section className="card">
-          <div className="card-head">
-            <div>
-              <h2 className="card-title">Monthly allocation</h2>
-              <p className="card-sub">
-                {formatMoney(summary.spent, currency, { masked })} spent of{' '}
-                {formatMoney(summary.budgeted, currency, { masked })} budgeted
-              </p>
-            </div>
-            <Badge tone={summary.ratio >= 100 ? 'red' : summary.ratio >= 80 ? 'warn' : 'lime'}>
-              {Math.round(summary.ratio)}% used
-            </Badge>
-          </div>
-          <div className="card-pad">
-            <Progress
-              value={summary.ratio}
-              tone={summary.ratio >= 100 ? 'over' : summary.ratio >= 80 ? 'warn' : undefined}
-            />
-            <div className="row-between" style={{ marginTop: 12 }}>
-              <span className="tx-meta" style={{ margin: 0 }}>
-                {summary.remaining >= 0
-                  ? `${formatMoney(summary.remaining, currency, { masked })} still available`
-                  : `${formatMoney(Math.abs(summary.remaining), currency, { masked })} over budget`}
-              </span>
-              <span className="tx-meta" style={{ margin: 0 }}>
-                {statuses.length} {statuses.length === 1 ? 'category' : 'categories'}
-              </span>
-            </div>
-          </div>
+          <EmptyState
+            icon="chart"
+            title={`Aucun budget pour ${formatMonth(month)}`}
+            text={`Vous avez dépensé ${money(monthSpend)} ce mois-ci. Fixez une enveloppe globale et, si vous le souhaitez, des plafonds par catégorie.`}
+            action={
+              <button type="button" className="btn btn-primary" onClick={() => setEditorOpen(true)}>
+                <Icon name="plus" size={15} />
+                Créer le budget
+              </button>
+            }
+          />
         </section>
-      ) : null}
+      ) : (
+        <>
+          <section className="card budget-hero">
+            <div className="budget-hero-main">
+              <div className="budget-hero-top">
+                <div>
+                  <span className="stat-label">Dépensé ce mois</span>
+                  <div className="budget-hero-value tnum">{money(status.overallSpent)}</div>
+                  <span className="muted">sur {money(status.overallBudget)} planifiés</span>
+                </div>
+                <div className="budget-hero-side">
+                  <Badge tone={status.overallState === 'over' ? 'danger' : status.overallState === 'warn' ? 'warn' : 'ok'}>
+                    {Math.round(status.overallPercent)} % utilisé
+                  </Badge>
+                  <span className={`budget-remaining ${status.overallRemaining < 0 ? 'neg' : 'pos'}`}>
+                    {status.overallRemaining >= 0
+                      ? `${money(status.overallRemaining)} restants`
+                      : `${money(Math.abs(status.overallRemaining))} de dépassement`}
+                  </span>
+                </div>
+              </div>
+              <Progress percent={status.overallPercent} tone={status.overallState} />
+              <div className="budget-hero-foot">
+                <span>
+                  {status.lines.length} catégorie{status.lines.length > 1 ? 's' : ''} plafonnée
+                  {status.lines.length > 1 ? 's' : ''}
+                </span>
+                <span className="muted">{money(status.unallocated)} non répartis</span>
+                <button type="button" className="link-sm" onClick={() => setConfirmOpen(true)}>
+                  <Icon name="trash" size={13} />
+                  Supprimer ce budget
+                </button>
+              </div>
+            </div>
+          </section>
 
-      <section className="card">
-        <div className="card-head">
-          <div>
-            <h2 className="card-title">Category limits</h2>
-            <p className="card-sub">{formatMonth(month)} spending ceilings</p>
-          </div>
-        </div>
-        <div className="card-pad">
-          {loading ? (
-            <div className="skeleton" style={{ height: 160 }} />
-          ) : statuses.length === 0 ? (
-            <EmptyState
-              icon={<PieChart size={20} />}
-              title="No budgets for this month"
-              text="Create a limit for the categories you want to keep in check. VAULT warns you at 80% and again at 100%."
+          {warnings.length ? (
+            <section className="card alert-card">
+              <div className="alert-head">
+                <Icon name="alert" size={17} />
+                <strong>
+                  {warnings.filter((w) => w.state === 'over').length > 0
+                    ? 'Plafond dépassé'
+                    : 'Seuil de vigilance atteint'}
+                </strong>
+              </div>
+              <ul className="alert-list">
+                {warnings.map((line) => (
+                  <li key={line.category}>
+                    <span className="alert-cat">{line.label}</span>
+                    <span className={`state-${line.state}`}>
+                      {Math.round(line.percent)} % ·{' '}
+                      {line.remaining >= 0
+                        ? `${money(line.remaining)} restants`
+                        : `${money(Math.abs(line.remaining))} au-delà`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          <section className="card">
+            <SectionHead
+              title="Plafonds par catégorie"
+              subtitle="Mis à jour à chaque transaction"
               action={
-                <button type="button" className="btn btn-primary btn-sm" onClick={openNew}>
-                  <Plus />
-                  Create budget
+                <button type="button" className="link-sm" onClick={() => setEditorOpen(true)}>
+                  <Icon name="edit" size={13} />
+                  Ajuster
                 </button>
               }
             />
-          ) : (
-            <div className="stack" style={{ gap: 22 }}>
-              {statuses.map((item) => (
-                <div className="budget-row" key={item.budget.id}>
-                  <div className="budget-top">
-                    <div className="row" style={{ gap: 10 }}>
-                      <span
-                        className="dot"
-                        style={{ background: categoryColor(item.budget.category), width: 9, height: 9 }}
-                      />
-                      <div>
-                        <div className="budget-name">{categoryLabel(item.budget.category)}</div>
-                        <div className="budget-meta">
-                          {formatMoney(item.spent, currency, { masked })} of{' '}
-                          {formatMoney(item.budget.amount, currency, { masked })}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="budget-figures">
-                      <span className="tnum" style={{ fontWeight: 600 }}>
-                        {Math.round(item.ratio)}%
+            {status.lines.length ? (
+              <ul className="budget-lines">
+                {status.lines.map((line) => (
+                  <li key={line.category} className="budget-line">
+                    <div className="budget-line-head">
+                      <span className="budget-line-icon" style={{ color: line.color, background: `${line.color}14` }}>
+                        <Icon name={line.icon} size={16} />
                       </span>
-                      {item.state === 'over' ? (
-                        <Badge tone="red">Over</Badge>
-                      ) : item.state === 'warn' ? (
-                        <Badge tone="warn">80% alert</Badge>
-                      ) : (
-                        <Badge tone="lime">On track</Badge>
-                      )}
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        onClick={() => openEdit(item.budget)}
-                        aria-label={`Edit ${categoryLabel(item.budget.category)} budget`}
-                      >
-                        <Pencil />
-                      </button>
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        onClick={() => setPendingDelete(item.budget)}
-                        aria-label={`Delete ${categoryLabel(item.budget.category)} budget`}
-                      >
-                        <Trash2 />
-                      </button>
+                      <span className="budget-line-label">{line.label}</span>
+                      <span className="budget-line-amount tnum">
+                        {money(line.spent)}
+                        <span className="muted"> / {money(line.budget)}</span>
+                      </span>
                     </div>
-                  </div>
+                    <Progress percent={line.percent} tone={line.state} />
+                    <div className="budget-line-foot">
+                      <span className={`state-${line.state}`}>{Math.round(line.percent)} %</span>
+                      <span className="muted">
+                        {line.remaining >= 0
+                          ? `${money(line.remaining)} restants`
+                          : `${money(Math.abs(line.remaining))} de dépassement`}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="chart-empty">
+                Aucun plafond par catégorie. Utilisez « Ajuster » pour en définir.
+              </p>
+            )}
+          </section>
+        </>
+      )}
 
-                  <Progress
-                    value={item.ratio}
-                    tone={item.state === 'over' ? 'over' : item.state === 'warn' ? 'warn' : undefined}
-                  />
+      <section className="card">
+        <SectionHead title="Historique des budgets" subtitle="Mois enregistrés, du plus récent au plus ancien" />
+        {history.length ? (
+          <ul className="history-list">
+            {history.map((row) => {
+              const state = row.percent >= 100 ? 'over' : row.percent >= 80 ? 'warn' : 'ok'
+              return (
+                <li key={row.month}>
+                  <button
+                    type="button"
+                    className={`history-row ${row.month === month ? 'active' : ''}`}
+                    onClick={() => setMonth(row.month)}
+                  >
+                    <span className="history-month">{formatMonth(row.month)}</span>
+                    <span className="history-bar">
+                      <Progress percent={row.percent} tone={state} thin />
+                    </span>
+                    <span className="history-amount tnum">
+                      {money(row.spent)}
+                      <span className="muted"> / {money(row.budget)}</span>
+                    </span>
+                    <span className={`history-percent state-${state}`}>{Math.round(row.percent)} %</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        ) : (
+          <p className="chart-empty">L'historique apparaîtra dès votre premier budget enregistré.</p>
+        )}
+      </section>
 
-                  <div className="row-between budget-meta">
-                    <span>
-                      {item.remaining >= 0
-                        ? `${formatMoney(item.remaining, currency, { masked })} left`
-                        : `${formatMoney(Math.abs(item.remaining), currency, { masked })} over`}
-                    </span>
-                    <span>
-                      {item.remaining > 0
-                        ? `${formatMoney(item.dailyAllowance, currency, { masked })}/day left`
-                        : `Projected ${formatMoney(item.projected, currency, { masked })}`}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+      <section className="card muted-card">
+        <SectionHead title="Dépenses du mois sélectionné" subtitle={`${formatMonth(month)} · ${monthKeyOf(todayIso()) === month ? 'mois en cours' : 'mois clôturé'}`} />
+        <div className="stat-inline">
+          <span className="tnum strong">{money(monthSpend)}</span>
+          <span className="muted">de dépenses enregistrées sur la période</span>
         </div>
       </section>
 
-      <Modal
-        open={open}
-        onClose={() => setOpen(false)}
-        title={editing ? 'Edit budget' : 'New budget'}
-        subtitle={`Monthly limit for ${formatMonth(month)}`}
-        footer={
-          <>
-            <button type="button" className="btn btn-quiet" onClick={() => setOpen(false)} disabled={busy}>
-              Cancel
-            </button>
-            <button type="button" className="btn btn-primary" onClick={submit} disabled={busy}>
-              {busy ? 'Saving…' : editing ? 'Save changes' : 'Create budget'}
-            </button>
-          </>
-        }
-      >
-        <div className="stack" style={{ gap: 16 }}>
-          <Field label="Category" htmlFor="budget-category">
-            <select
-              id="budget-category"
-              className="select"
-              value={category}
-              onChange={(event) => setCategory(event.target.value)}
-            >
-              {EXPENSE_CATEGORIES.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <Field label="Monthly limit" htmlFor="budget-amount">
-            <input
-              id="budget-amount"
-              className="input"
-              value={amount}
-              onChange={(event) => setAmount(event.target.value)}
-              inputMode="decimal"
-              placeholder="0.00"
-            />
-          </Field>
-
-          {error ? <p className="field-error">{error}</p> : null}
-        </div>
-      </Modal>
+      <BudgetModal open={editorOpen} onClose={() => setEditorOpen(false)} month={month} initial={budget} />
 
       <ConfirmDialog
-        open={pendingDelete !== null}
-        title="Remove budget?"
-        text="The limit will be deleted for this month. Your transactions stay untouched."
-        confirmLabel="Remove"
-        busy={busy}
-        onConfirm={confirmDelete}
-        onClose={() => setPendingDelete(null)}
+        open={confirmOpen}
+        title="Supprimer ce budget ?"
+        message={`Le budget de ${formatMonth(month)} sera supprimé. Vos transactions restent intactes.`}
+        confirmLabel="Supprimer"
+        tone="danger"
+        onConfirm={() => {
+          deleteBudget(month)
+          setConfirmOpen(false)
+        }}
+        onCancel={() => setConfirmOpen(false)}
       />
     </div>
   )
