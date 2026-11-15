@@ -255,7 +255,9 @@ export default function Savings() {
                   </div>
                   <div className="goal-meta-row">
                     <span>Effort mensuel requis</span>
-                    <span className="tnum">{money(projection.requiredMonthly)}</span>
+                    <span className="tnum">
+                      {projection.requiredMonthly == null ? '—' : money(projection.requiredMonthly)}
+                    </span>
                   </div>
                   <div className="goal-meta-row">
                     <span>Rythme actuel</span>
