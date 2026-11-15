@@ -1,383 +1,376 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  ArrowDownLeft,
-  ArrowUpRight,
-  Plus,
-  Receipt,
-  Target,
-  TrendingUp,
-} from 'lucide-react'
 import { useData } from '../context/DataContext'
-import { useAuth } from '../context/AuthContext'
-import { Badge, Delta, EmptyState, PageHead, Progress } from '../components/UI'
-import { Donut, TrendChart, type TrendPoint } from '../components/Charts'
-import TransactionModal from '../components/TransactionModal'
 import {
-  balanceOf,
+  balanceSeries,
+  budgetStatus,
   categoryBreakdown,
-  daysUntil,
-  goalProgress,
-  lastMonths,
-  monthlySeries,
-  percentChange,
+  flowSeries,
+  goalProjection,
+  monthlyComparison,
+  netWorth,
   savingsRate,
-  sortByDateDesc,
   totalsFor,
+  upcomingBills,
 } from '../lib/analytics'
+import { categoryById, paymentLabel } from '../lib/constants'
 import {
+  RANGES,
   currentMonthKey,
-  formatMoney,
+  formatDate,
   formatMonth,
-  formatPercent,
+  rangeStart,
   relativeDay,
-  shiftMonth,
+  todayIso,
+  type RangeKey,
 } from '../lib/format'
-import { DEFAULT_CURRENCY, categoryColor, categoryLabel } from '../lib/constants'
+import { AreaChart, BarsChart, CategoryBars } from '../components/Charts'
+import { Icon } from '../components/Icon'
+import TransactionModal from '../components/TransactionModal'
+import { EmptyState, Progress, SectionHead, Segmented, StatCard } from '../components/UI'
 
 export default function Dashboard() {
-  const { profile, transactions, goals, loading, error } = useData()
-  const { user } = useAuth()
-  const [open, setOpen] = useState(false)
+  const { data, money, hasData } = useData()
+  const [range, setRange] = useState<RangeKey>('30d')
+  const [txOpen, setTxOpen] = useState(false)
 
-  const currency = profile?.currency ?? DEFAULT_CURRENCY
-  const masked = profile?.privacy_mode ?? false
-
+  const today = todayIso()
   const month = currentMonthKey()
-  const prevMonth = shiftMonth(month, -1)
+  const from = rangeStart(range)
 
-  const totals = useMemo(() => totalsFor(transactions, month), [transactions, month])
-  const prev = useMemo(() => totalsFor(transactions, prevMonth), [transactions, prevMonth])
-  const balance = useMemo(() => balanceOf(transactions), [transactions])
-  const series = useMemo(() => monthlySeries(transactions, lastMonths(6)), [transactions])
-
-  const slices = useMemo(
-    () =>
-      categoryBreakdown(transactions, month, 'expense')
-        .slice(0, 6)
-        .map((slice) => ({
-          label: categoryLabel(slice.category),
-          value: slice.total,
-          color: categoryColor(slice.category),
-        })),
-    [transactions, month],
+  const totals = useMemo(() => totalsFor(data.transactions, from, today), [data.transactions, from, today])
+  const comparison = useMemo(() => monthlyComparison(data.transactions, month), [data.transactions, month])
+  const balance = useMemo(() => balanceSeries(data.transactions, range), [data.transactions, range])
+  const flow = useMemo(() => flowSeries(data.transactions, range), [data.transactions, range])
+  const cats = useMemo(() => categoryBreakdown(data.transactions, from, today), [data.transactions, from, today])
+  const budget = useMemo(
+    () => budgetStatus(data.budgets.find((b) => b.month === month), data.transactions, month),
+    [data.budgets, data.transactions, month],
   )
-
-  const recent = useMemo(() => sortByDateDesc(transactions).slice(0, 6), [transactions])
-  const points: TrendPoint[] = series.map((point) => ({
-    label: formatMonth(point.month, 'short'),
-    income: point.income,
-    expense: point.expense,
-  }))
+  const bills = useMemo(() => upcomingBills(data, 21).slice(0, 5), [data])
+  const recent = useMemo(
+    () => [...data.transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6),
+    [data.transactions],
+  )
+  const goals = useMemo(() => data.goals.slice(0, 3), [data.goals])
 
   const rate = savingsRate(totals.income, totals.expense)
-  const topGoals = useMemo(
-    () => [...goals].sort((a, b) => goalProgress(b) - goalProgress(a)).slice(0, 3),
-    [goals],
-  )
+  const balanceNow = netWorth(data.transactions)
 
-  const firstName =
-    (profile?.full_name ?? user?.name ?? '').trim().split(/\s+/)[0] || 'there'
-
-  if (loading) {
+  if (!hasData) {
     return (
-      <div className="stack">
-        <PageHead eyebrow="Overview" title="Loading your position…" />
-        <div className="grid g-main">
-          <div className="hero skeleton" style={{ height: 210 }} />
-          <div className="stack">
-            <div className="stat skeleton" style={{ height: 96 }} />
-            <div className="stat skeleton" style={{ height: 96 }} />
+      <div className="page">
+        <header className="page-head">
+          <div>
+            <p className="eyebrow">{formatDate(today, 'long')}</p>
+            <h1 className="page-title">Votre tableau de bord</h1>
+            <p className="page-sub">Ajoutez votre première opération pour voir vos chiffres prendre vie.</p>
           </div>
+        </header>
+        <div className="card">
+          <EmptyState
+            icon="wallet"
+            title="Aucune donnée pour l'instant"
+            text="VAULT calcule tout localement, sans compte ni connexion bancaire. Commencez par une transaction, ou explorez avec des données de démonstration clairement identifiées."
+            action={
+              <div className="empty-actions">
+                <button type="button" className="btn btn-primary" onClick={() => setTxOpen(true)}>
+                  <Icon name="plus" size={15} />
+                  Ajouter une transaction
+                </button>
+                <Link to="/reglages" className="btn btn-quiet">
+                  Charger la démonstration
+                </Link>
+              </div>
+            }
+          />
         </div>
-        <div className="card skeleton" style={{ height: 300 }} />
+        <TransactionModal open={txOpen} onClose={() => setTxOpen(false)} />
       </div>
     )
   }
 
   return (
-    <div className="stack">
-      <PageHead
-        eyebrow={formatMonth(month)}
-        title={`Good to see you, ${firstName}.`}
-        sub="Here is exactly where your money stands today."
-        actions={
-          <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
-            <Plus />
-            New transaction
+    <div className="page">
+      <header className="page-head">
+        <div>
+          <p className="eyebrow">{formatDate(today, 'long')}</p>
+          <h1 className="page-title">
+            {data.profile.name ? `Bonjour, ${data.profile.name}` : 'Vue d’ensemble'}
+          </h1>
+          <p className="page-sub">Votre situation financière, calculée à partir de vos données.</p>
+        </div>
+        <div className="page-actions">
+          <Segmented
+            options={RANGES.map((r) => ({ id: r.id, label: r.label }))}
+            value={range}
+            onChange={setRange}
+            size="sm"
+          />
+          <button type="button" className="btn btn-primary" onClick={() => setTxOpen(true)}>
+            <Icon name="plus" size={15} />
+            <span>Transaction</span>
           </button>
-        }
-      />
-
-      {error ? <div className="banner">{error}</div> : null}
-
-      <div className="grid g-main">
-        <section className="hero">
-          <div className="hero-label">Total tracked balance</div>
-          <div className="hero-value tnum">{formatMoney(balance, currency, { masked })}</div>
-          <div className="hero-foot">
-            <Delta value={percentChange(totals.net, prev.net)} suffix="net vs last month" />
-            <span className="hero-note">
-              {formatPercent(rate, 1)} savings rate · {formatMonth(month, 'short')}
-            </span>
-          </div>
-          <div className="hero-note" style={{ marginTop: 18 }}>
-            {transactions.length === 0
-              ? 'Add your first entry to start tracking — every figure below is calculated from your own data.'
-              : `${transactions.length} entries tracked across ${new Set(transactions.map((tx) => tx.category)).size} categories.`}
-          </div>
-        </section>
-
-        <div className="stack">
-          <div className="stat">
-            <div className="stat-top">
-              <span className="stat-label">Income this month</span>
-              <span className="stat-icon" style={{ color: 'var(--accent)' }}>
-                <ArrowDownLeft size={15} />
-              </span>
-            </div>
-            <div className="stat-value tnum" style={{ color: 'var(--accent)' }}>
-              {formatMoney(totals.income, currency, { masked })}
-            </div>
-            <div className="stat-foot">
-              <Delta value={percentChange(totals.income, prev.income)} />
-              <span>vs {formatMonth(prevMonth, 'short')}</span>
-            </div>
-          </div>
-
-          <div className="stat">
-            <div className="stat-top">
-              <span className="stat-label">Expenses this month</span>
-              <span className="stat-icon">
-                <ArrowUpRight size={15} />
-              </span>
-            </div>
-            <div className="stat-value tnum">{formatMoney(totals.expense, currency, { masked })}</div>
-            <div className="stat-foot">
-              <Delta value={percentChange(totals.expense, prev.expense)} />
-              <span>vs {formatMonth(prevMonth, 'short')}</span>
-            </div>
-          </div>
         </div>
+      </header>
+
+      <div className="grid-4">
+        <StatCard
+          label="Solde total"
+          value={money(balanceNow)}
+          icon="wallet"
+          accent
+          meta={`${data.transactions.length} opérations enregistrées`}
+        />
+        <StatCard
+          label="Revenus"
+          value={money(totals.income)}
+          icon="arrow-down-right"
+          delta={{ value: comparison.incomeChange, suffix: 'vs mois dernier' }}
+        />
+        <StatCard
+          label="Dépenses"
+          value={money(totals.expense)}
+          icon="arrow-up-right"
+          delta={{ value: comparison.expenseChange, suffix: 'vs mois dernier' }}
+        />
+        <StatCard
+          label="Épargne nette"
+          value={money(totals.net)}
+          icon="piggy"
+          meta={`Taux d'épargne ${rate.toFixed(0)} %`}
+        />
       </div>
 
-      <div className="grid g-3">
-        <div className="stat">
-          <div className="stat-top">
-            <span className="stat-label">Net savings</span>
-            <span className="stat-icon" style={{ color: totals.net >= 0 ? 'var(--accent)' : 'var(--danger)' }}>
-              <TrendingUp size={15} />
-            </span>
-          </div>
-          <div className="stat-value tnum">{formatMoney(totals.net, currency, { masked, signed: true })}</div>
-          <div className="stat-foot">
-            <span>{totals.net >= 0 ? 'Money kept this month' : 'Spending above income'}</span>
-          </div>
-        </div>
-
-        <div className="stat">
-          <div className="stat-top">
-            <span className="stat-label">Previous month net</span>
-          </div>
-          <div className="stat-value tnum">{formatMoney(prev.net, currency, { masked, signed: true })}</div>
-          <div className="stat-foot">
-            <span>{formatMonth(prevMonth, 'short')} · income {formatMoney(prev.income, currency, { masked })}</span>
-          </div>
-        </div>
-
-        <div className="stat">
-          <div className="stat-top">
-            <span className="stat-label">Savings goals</span>
-            <span className="stat-icon" style={{ color: 'var(--accent)' }}>
-              <Target size={15} />
-            </span>
-          </div>
-          <div className="stat-value tnum">{goals.length}</div>
-          <div className="stat-foot">
-            <span>
-              {formatMoney(goals.reduce((acc, goal) => acc + goal.saved_amount, 0), currency, { masked })} saved in total
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid g-main">
-        <section className="card">
-          <div className="card-head">
-            <div>
-              <h2 className="card-title">Income versus expenses</h2>
-              <p className="card-sub">Last six months, from your own entries</p>
-            </div>
-            <div className="legend">
-              <span className="legend-row">
-                <span className="dot" style={{ background: 'var(--accent)' }} /> Income
-              </span>
-              <span className="legend-row">
-                <span className="dot" style={{ background: 'var(--muted-2)' }} /> Expenses
-              </span>
-            </div>
-          </div>
-          <div className="card-pad">
-            {transactions.length === 0 ? (
-              <EmptyState
-                icon={<Receipt size={20} />}
-                title="No history yet"
-                text="Your income and expense curve appears as soon as you add your first transaction."
-                action={
-                  <button type="button" className="btn btn-primary btn-sm" onClick={() => setOpen(true)}>
-                    <Plus />
-                    Add transaction
-                  </button>
-                }
-              />
-            ) : (
-              <TrendChart points={points} currency={currency} masked={masked} />
-            )}
-          </div>
+      <div className="grid-main">
+        <section className="card span-2">
+          <SectionHead
+            title="Évolution du solde"
+            subtitle={`Sur ${RANGES.find((r) => r.id === range)?.label.toLowerCase()}`}
+            action={<span className="pill">{money(balanceNow)}</span>}
+          />
+          <AreaChart
+            points={balance.map((p) => ({ label: p.label, value: p.value }))}
+            formatValue={(v) => money(v)}
+            height={230}
+          />
         </section>
 
         <section className="card">
-          <div className="card-head">
-            <div>
-              <h2 className="card-title">Spending categories</h2>
-              <p className="card-sub">{formatMonth(month)}</p>
-            </div>
-          </div>
-          <div className="card-pad">
-            {slices.length === 0 ? (
-              <EmptyState
-                icon={<Target size={20} />}
-                title="Nothing spent yet"
-                text="Log an expense and VAULT will break it down by category here."
-              />
-            ) : (
-              <Donut slices={slices} total={totals.expense} currency={currency} masked={masked} />
-            )}
+          <SectionHead title="Revenus / dépenses" subtitle="Comparaison par période" />
+          <BarsChart
+            points={flow.map((p) => ({ label: p.label, income: p.income, expense: p.expense }))}
+            formatValue={(v) => money(v)}
+            height={230}
+          />
+          <div className="legend">
+            <span className="legend-item">
+              <span className="legend-dot income" /> Revenus
+            </span>
+            <span className="legend-item">
+              <span className="legend-dot expense" /> Dépenses
+            </span>
           </div>
         </section>
       </div>
 
-      <div className="grid g-main">
+      <div className="grid-main">
         <section className="card">
-          <div className="card-head">
-            <div>
-              <h2 className="card-title">Recent transactions</h2>
-              <p className="card-sub">Latest activity across all accounts</p>
-            </div>
-            <Link to="/transactions" className="link-btn">
-              View all
-            </Link>
-          </div>
-          <div className="card-pad">
-            {recent.length === 0 ? (
-              <EmptyState
-                icon={<Receipt size={20} />}
-                title="Your ledger is empty"
-                text="Add income or an expense to see it appear here instantly."
-                action={
-                  <button type="button" className="btn btn-primary btn-sm" onClick={() => setOpen(true)}>
-                    <Plus />
-                    Add transaction
-                  </button>
-                }
-              />
-            ) : (
-              <div className="tx-list">
-                {recent.map((tx) => (
-                  <div className="tx-row" key={tx.id}>
-                    <span
-                      className="tx-icon"
-                      style={{
-                        background: `${categoryColor(tx.category)}1f`,
-                        color: categoryColor(tx.category),
-                      }}
-                    >
-                      {tx.type === 'income' ? <ArrowDownLeft size={15} /> : <ArrowUpRight size={15} />}
+          <SectionHead
+            title="Répartition des dépenses"
+            subtitle={`${cats.length} catégorie${cats.length > 1 ? 's' : ''} sur la période`}
+            action={
+              <Link to="/analyses" className="link-sm">
+                Détail
+                <Icon name="arrow-right" size={13} />
+              </Link>
+            }
+          />
+          {cats.length ? (
+            <CategoryBars slices={cats.slice(0, 6)} formatValue={(v) => money(v)} />
+          ) : (
+            <div className="chart-empty">Aucune dépense sur cette période</div>
+          )}
+        </section>
+
+        <section className="card">
+          <SectionHead
+            title="Budget du mois"
+            subtitle={formatMonth(month)}
+            action={
+              <Link to="/budgets" className="link-sm">
+                Gérer
+                <Icon name="arrow-right" size={13} />
+              </Link>
+            }
+          />
+          {budget.overallBudget > 0 ? (
+            <div className="budget-mini">
+              <div className="budget-mini-top">
+                <span className="tnum strong">{money(budget.overallSpent)}</span>
+                <span className="muted">sur {money(budget.overallBudget)}</span>
+              </div>
+              <Progress percent={budget.overallPercent} tone={budget.overallState} />
+              <div className="budget-mini-foot">
+                <span className={`state-${budget.overallState}`}>
+                  {Math.round(budget.overallPercent)} % utilisé
+                </span>
+                <span className="muted">
+                  {budget.overallRemaining >= 0
+                    ? `${money(budget.overallRemaining)} restants`
+                    : `${money(Math.abs(budget.overallRemaining))} de dépassement`}
+                </span>
+              </div>
+              <ul className="mini-lines">
+                {budget.lines.slice(0, 3).map((line) => (
+                  <li key={line.category}>
+                    <span className="mini-line-icon" style={{ color: line.color }}>
+                      <Icon name={line.icon} size={14} />
                     </span>
-                    <div className="tx-main">
-                      <div className="tx-desc">{tx.description || categoryLabel(tx.category)}</div>
-                      <div className="tx-meta">
-                        {categoryLabel(tx.category)} · {relativeDay(tx.occurred_on)}
-                      </div>
-                    </div>
-                    <div
-                      className="tx-amount tnum"
-                      style={{ color: tx.type === 'income' ? 'var(--accent)' : 'var(--text)' }}
-                    >
-                      {tx.type === 'income' ? '+' : '−'}
-                      {formatMoney(tx.amount, currency, { masked })}
-                    </div>
-                  </div>
+                    <span className="mini-line-label">{line.label}</span>
+                    <span className={`mini-line-value state-${line.state}`}>{Math.round(line.percent)} %</span>
+                  </li>
                 ))}
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="card">
-          <div className="card-head">
-            <div>
-              <h2 className="card-title">Savings goals</h2>
-              <p className="card-sub">Progress towards what matters</p>
+              </ul>
             </div>
-            <Link to="/savings" className="link-btn">
-              Manage
-            </Link>
-          </div>
-          <div className="card-pad">
-            {topGoals.length === 0 ? (
-              <EmptyState
-                icon={<Target size={20} />}
-                title="No goals yet"
-                text="Create a savings goal and VAULT tracks your progress and monthly pace automatically."
-                action={
-                  <Link to="/savings" className="btn btn-primary btn-sm">
-                    <Plus />
-                    Create goal
-                  </Link>
-                }
-              />
-            ) : (
-              <div className="stack" style={{ gap: 18 }}>
-                {topGoals.map((goal) => {
-                  const progress = goalProgress(goal)
-                  const days = daysUntil(goal.deadline)
-                  return (
-                    <div key={goal.id} className="stack" style={{ gap: 8 }}>
-                      <div className="row-between">
-                        <span className="budget-name">{goal.name}</span>
-                        <span className="tx-meta" style={{ margin: 0 }}>
-                          {Math.round(progress)}%
-                        </span>
-                      </div>
-                      <Progress value={progress} />
-                      <div className="row-between">
-                        <span className="tx-meta" style={{ margin: 0 }}>
-                          {formatMoney(goal.saved_amount, currency, { masked })} of{' '}
-                          {formatMoney(goal.target_amount, currency, { masked })}
-                        </span>
-                        {days !== null ? (
-                          <Badge tone={days < 0 ? 'red' : days < 30 ? 'warn' : 'neutral'}>
-                            {days < 0 ? `${Math.abs(days)}d late` : `${days}d left`}
-                          </Badge>
-                        ) : (
-                          <Badge tone="neutral">No deadline</Badge>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+          ) : (
+            <EmptyState
+              icon="chart"
+              title="Aucun budget défini"
+              text="Fixez une enveloppe mensuelle pour suivre vos dépenses catégorie par catégorie."
+              action={
+                <Link to="/budgets" className="btn btn-quiet btn-sm">
+                  Créer un budget
+                </Link>
+              }
+            />
+          )}
         </section>
       </div>
 
-      <TransactionModal
-        open={open}
-        onClose={() => setOpen(false)}
-        currency={currency}
-      />
+      <div className="grid-main">
+        <section className="card">
+          <SectionHead
+            title="Transactions récentes"
+            subtitle="Les derniers mouvements"
+            action={
+              <Link to="/transactions" className="link-sm">
+                Tout voir
+                <Icon name="arrow-right" size={13} />
+              </Link>
+            }
+          />
+          {recent.length ? (
+            <ul className="tx-list">
+              {recent.map((tx) => {
+                const cat = categoryById(tx.category)
+                return (
+                  <li key={tx.id} className="tx-row">
+                    <span className="tx-icon" style={{ color: cat.color, background: `${cat.color}14` }}>
+                      <Icon name={cat.icon} size={16} />
+                    </span>
+                    <span className="tx-main">
+                      <span className="tx-title">{tx.name}</span>
+                      <span className="tx-meta">
+                        {cat.label} · {formatDate(tx.date)} · {paymentLabel(tx.paymentMethod)}
+                      </span>
+                    </span>
+                    <span className={`tx-amount ${tx.type === 'income' ? 'pos' : 'neg'}`}>
+                      {tx.type === 'income' ? '+' : '−'}
+                      {money(tx.amount)}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          ) : (
+            <div className="chart-empty">Aucune transaction enregistrée</div>
+          )}
+        </section>
+
+        <section className="card">
+          <SectionHead
+            title="Prochaines échéances"
+            subtitle="21 jours à venir"
+            action={
+              <Link to="/calendrier" className="link-sm">
+                Calendrier
+                <Icon name="arrow-right" size={13} />
+              </Link>
+            }
+          />
+          {bills.length ? (
+            <ul className="bill-list">
+              {bills.map((bill) => (
+                <li key={bill.id} className="bill-row">
+                  <span className="bill-date">
+                    <span className="bill-day">{bill.date.slice(8, 10)}</span>
+                    <span className="bill-month">{formatMonth(bill.date.slice(0, 7), 'short')}</span>
+                  </span>
+                  <span className="bill-main">
+                    <span className="bill-title">{bill.title}</span>
+                    <span className="bill-meta">{relativeDay(bill.date)}</span>
+                  </span>
+                  {bill.amount !== null ? (
+                    <span className="bill-amount tnum">−{money(bill.amount)}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="chart-empty">Aucune échéance dans les 3 prochaines semaines</div>
+          )}
+        </section>
+      </div>
+
+      <section className="card">
+        <SectionHead
+          title="Objectifs d'épargne"
+          subtitle={`${data.goals.length} objectif${data.goals.length > 1 ? 's' : ''} en cours`}
+          action={
+            <Link to="/epargne" className="link-sm">
+              Gérer
+              <Icon name="arrow-right" size={13} />
+            </Link>
+          }
+        />
+        {goals.length ? (
+          <div className="goal-mini-grid">
+            {goals.map((goal) => {
+              const proj = goalProjection(goal)
+              return (
+                <div key={goal.id} className="goal-mini">
+                  <div className="goal-mini-head">
+                    <span className="goal-mini-icon">
+                      <Icon name={goal.icon} size={16} />
+                    </span>
+                    <span className="goal-mini-name">{goal.name}</span>
+                    <span className="goal-mini-percent tnum">{Math.round(proj.percent)} %</span>
+                  </div>
+                  <Progress percent={proj.percent} tone={proj.percent >= 100 ? 'accent' : 'ok'} />
+                  <div className="goal-mini-foot">
+                    <span className="tnum">{money(goal.saved)}</span>
+                    <span className="muted">sur {money(goal.target)}</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <EmptyState
+            icon="target"
+            title="Aucun objectif"
+            text="Créez un objectif pour visualiser votre progression vers une cible concrète."
+            action={
+              <Link to="/epargne" className="btn btn-quiet btn-sm">
+                Créer un objectif
+              </Link>
+            }
+          />
+        )}
+      </section>
+
+      <TransactionModal open={txOpen} onClose={() => setTxOpen(false)} />
     </div>
   )
 }
