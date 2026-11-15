@@ -1,487 +1,369 @@
 import { useMemo, useState } from 'react'
-import { ArrowDownLeft, ArrowUpRight, Pencil, Plus, Target, Trash2 } from 'lucide-react'
 import { useData } from '../context/DataContext'
-import {
-  Badge,
-  ConfirmDialog,
-  EmptyState,
-  Field,
-  Modal,
-  PageHead,
-  Progress,
-  useToast,
-} from '../components/UI'
-import { daysUntil, goalMonthlyPace, goalProgress } from '../lib/analytics'
-import {
-  currencySymbol,
-  formatDate,
-  formatMoney,
-  parseAmount,
-  todayIso,
-} from '../lib/format'
-import { DEFAULT_CURRENCY } from '../lib/constants'
-import type { SavingsGoal } from '../lib/types'
+import { goalProjection } from '../lib/analytics'
+import { formatDate, parseAmount, todayIso } from '../lib/format'
+import type { Goal } from '../lib/types'
+import GoalModal from '../components/GoalModal'
+import { Icon } from '../components/Icon'
+import { Badge, ConfirmDialog, EmptyState, Field, Modal, Progress, SectionHead, useToast } from '../components/UI'
 
-export default function Savings() {
-  const { profile, goals, activity, addGoal, editGoal, removeGoal, moveGoalMoney, loading } = useData()
-  const notify = useToast()
+const STATE_LABEL: Record<string, { label: string; tone: 'ok' | 'warn' | 'danger' | 'accent' | 'muted' }> = {
+  'on-track': { label: 'Dans les temps', tone: 'ok' },
+  ahead: { label: 'En avance', tone: 'ok' },
+  behind: { label: 'En retard', tone: 'warn' },
+  done: { label: 'Objectif atteint', tone: 'accent' },
+  'no-pace': { label: 'À démarrer', tone: 'muted' },
+}
 
-  const currency = profile?.currency ?? DEFAULT_CURRENCY
-  const masked = profile?.privacy_mode ?? false
-
-  const [goalOpen, setGoalOpen] = useState(false)
-  const [editing, setEditing] = useState<SavingsGoal | null>(null)
-  const [name, setName] = useState('')
-  const [target, setTarget] = useState('')
-  const [saved, setSaved] = useState('')
-  const [deadline, setDeadline] = useState('')
-  const [error, setError] = useState<string | null>(null)
-
-  const [moneyGoal, setMoneyGoal] = useState<SavingsGoal | null>(null)
-  const [direction, setDirection] = useState<'deposit' | 'withdraw'>('deposit')
-  const [moneyAmount, setMoneyAmount] = useState('')
+function MoneyModal({
+  goal,
+  mode,
+  onClose,
+}: {
+  goal: Goal | null
+  mode: 'deposit' | 'withdraw'
+  onClose: () => void
+}) {
+  const { contributeToGoal } = useData()
+  const { toast } = useToast()
+  const [amount, setAmount] = useState('')
   const [note, setNote] = useState('')
-  const [moneyError, setMoneyError] = useState<string | null>(null)
+  const [date, setDate] = useState(todayIso())
+  const [error, setError] = useState('')
 
-  const [pendingDelete, setPendingDelete] = useState<SavingsGoal | null>(null)
-  const [busy, setBusy] = useState(false)
+  const value = parseAmount(amount)
 
-  const totalSaved = useMemo(() => goals.reduce((acc, goal) => acc + goal.saved_amount, 0), [goals])
-  const totalTarget = useMemo(() => goals.reduce((acc, goal) => acc + goal.target_amount, 0), [goals])
-
-  const recentActivity = useMemo(
-    () =>
-      [...activity]
-        .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
-        .slice(0, 8),
-    [activity],
-  )
-
-  const openNew = () => {
-    setEditing(null)
-    setName('')
-    setTarget('')
-    setSaved('')
-    setDeadline('')
-    setError(null)
-    setGoalOpen(true)
-  }
-
-  const openEdit = (goal: SavingsGoal) => {
-    setEditing(goal)
-    setName(goal.name)
-    setTarget(String(goal.target_amount))
-    setSaved(String(goal.saved_amount))
-    setDeadline(goal.deadline ?? '')
-    setError(null)
-    setGoalOpen(true)
-  }
-
-  const submitGoal = async () => {
-    if (name.trim().length < 2) {
-      setError('Give this goal a name.')
+  const submit = () => {
+    if (!goal) return
+    if (!value || value <= 0) {
+      setError('Saisissez un montant supérieur à zéro.')
       return
     }
-    const targetValue = parseAmount(target)
-    if (!Number.isFinite(targetValue) || targetValue <= 0) {
-      setError('Enter a target amount greater than zero.')
+    if (mode === 'withdraw' && value > goal.saved) {
+      setError(`Vous ne pouvez retirer que ${goal.saved.toFixed(2)} € de cet objectif.`)
       return
     }
-    const savedValue = saved.trim() === '' ? 0 : parseAmount(saved)
-    if (!Number.isFinite(savedValue) || savedValue < 0) {
-      setError('The saved amount cannot be negative.')
-      return
-    }
-
-    setBusy(true)
-    setError(null)
-    try {
-      const payload = {
-        name: name.trim(),
-        target_amount: targetValue,
-        saved_amount: savedValue,
-        deadline: deadline || null,
-      }
-      if (editing) {
-        await editGoal(editing.id, payload)
-        notify('Goal updated.', 'ok')
-      } else {
-        await addGoal(payload)
-        notify('Savings goal created.', 'ok')
-      }
-      setGoalOpen(false)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save this goal.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const openMoney = (goal: SavingsGoal, mode: 'deposit' | 'withdraw') => {
-    setMoneyGoal(goal)
-    setDirection(mode)
-    setMoneyAmount('')
+    contributeToGoal(goal.id, mode === 'deposit' ? value : -value, note.trim(), date)
+    toast(mode === 'deposit' ? 'Versement enregistré' : 'Retrait enregistré')
+    setAmount('')
     setNote('')
-    setMoneyError(null)
-  }
-
-  const submitMoney = async () => {
-    if (!moneyGoal) return
-    const value = parseAmount(moneyAmount)
-    if (!Number.isFinite(value) || value <= 0) {
-      setMoneyError('Enter an amount greater than zero.')
-      return
-    }
-    setBusy(true)
-    setMoneyError(null)
-    try {
-      await moveGoalMoney(
-        moneyGoal.id,
-        direction === 'deposit' ? value : -value,
-        note.trim() || (direction === 'deposit' ? 'Deposit' : 'Withdrawal'),
-      )
-      notify(direction === 'deposit' ? 'Money added to goal.' : 'Money withdrawn.', 'ok')
-      setMoneyGoal(null)
-    } catch (err) {
-      setMoneyError(err instanceof Error ? err.message : 'Could not move this money.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const confirmDelete = async () => {
-    if (!pendingDelete) return
-    setBusy(true)
-    try {
-      await removeGoal(pendingDelete.id)
-      notify('Goal deleted.', 'ok')
-      setPendingDelete(null)
-    } catch (err) {
-      notify(err instanceof Error ? err.message : 'Could not delete this goal.', 'err')
-    } finally {
-      setBusy(false)
-    }
+    setError('')
+    onClose()
   }
 
   return (
-    <div className="stack">
-      <PageHead
-        eyebrow="Reserves"
-        title="Savings"
-        sub="Set the target, move money in and out, and let VAULT compute the pace."
-        actions={
-          <button type="button" className="btn btn-primary" onClick={openNew}>
-            <Plus />
-            New goal
+    <Modal
+      open={Boolean(goal)}
+      onClose={onClose}
+      title={mode === 'deposit' ? 'Ajouter à l’objectif' : 'Retirer de l’objectif'}
+      subtitle={goal?.name}
+      footer={
+        <>
+          <button type="button" className="btn btn-quiet" onClick={onClose}>
+            Annuler
           </button>
-        }
-      />
-
-      <div className="grid g-3">
-        <div className="stat">
-          <div className="stat-top">
-            <span className="stat-label">Total saved</span>
-            <span className="stat-icon" style={{ color: 'var(--accent)' }}>
-              <Target size={15} />
-            </span>
-          </div>
-          <div className="stat-value tnum" style={{ color: 'var(--accent)' }}>
-            {formatMoney(totalSaved, currency, { masked })}
-          </div>
-        </div>
-        <div className="stat">
-          <div className="stat-top">
-            <span className="stat-label">Combined target</span>
-          </div>
-          <div className="stat-value tnum">{formatMoney(totalTarget, currency, { masked })}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-top">
-            <span className="stat-label">Goals</span>
-          </div>
-          <div className="stat-value tnum">{goals.length}</div>
-          <div className="stat-foot">
-            <span>
-              {totalTarget > 0
-                ? `${Math.round((totalSaved / totalTarget) * 100)}% of combined target`
-                : 'No target set yet'}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="card skeleton" style={{ height: 200 }} />
-      ) : goals.length === 0 ? (
-        <section className="card">
-          <div className="card-pad">
-            <EmptyState
-              icon={<Target size={20} />}
-              title="No savings goals yet"
-              text="A goal is a name, a target and a deadline. Create one and VAULT tracks deposits, withdrawals and the monthly pace you need."
-              action={
-                <button type="button" className="btn btn-primary btn-sm" onClick={openNew}>
-                  <Plus />
-                  Create your first goal
-                </button>
-              }
+          <button type="button" className="btn btn-primary" onClick={submit}>
+            {mode === 'deposit' ? 'Verser' : 'Retirer'}
+          </button>
+        </>
+      }
+    >
+      <div className="form-stack">
+        <Field label="Montant" error={error || undefined}>
+          <div className="input-affix">
+            <span>€</span>
+            <input
+              className="input"
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="150"
+              autoFocus
             />
           </div>
+        </Field>
+        <Field label="Date">
+          <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </Field>
+        <Field label="Note (facultatif)">
+          <input
+            className="input"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Prime, virement mensuel…"
+          />
+        </Field>
+        {goal ? (
+          <p className="hint">
+            Solde actuel : {goal.saved.toFixed(2)} € sur {goal.target.toFixed(2)} €.
+          </p>
+        ) : null}
+      </div>
+    </Modal>
+  )
+}
+
+export default function Savings() {
+  const { data, money, deleteGoal } = useData()
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<Goal | null>(null)
+  const [money_goal, setMoneyGoal] = useState<Goal | null>(null)
+  const [moneyMode, setMoneyMode] = useState<'deposit' | 'withdraw'>('deposit')
+  const [toDelete, setToDelete] = useState<Goal | null>(null)
+
+  const totals = useMemo(() => {
+    const saved = data.goals.reduce((sum, g) => sum + g.saved, 0)
+    const target = data.goals.reduce((sum, g) => sum + g.target, 0)
+    return { saved, target, percent: target > 0 ? (saved / target) * 100 : 0 }
+  }, [data.goals])
+
+  const openDeposit = (goal: Goal) => {
+    setMoneyMode('deposit')
+    setMoneyGoal(goal)
+  }
+
+  const openWithdraw = (goal: Goal) => {
+    setMoneyMode('withdraw')
+    setMoneyGoal(goal)
+  }
+
+  return (
+    <div className="page">
+      <header className="page-head">
+        <div>
+          <p className="eyebrow">Patrimoine</p>
+          <h1 className="page-title">Épargne</h1>
+          <p className="page-sub">Vos objectifs, votre rythme, vos projections d’atteinte.</p>
+        </div>
+        <div className="page-actions">
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => {
+              setEditing(null)
+              setFormOpen(true)
+            }}
+          >
+            <Icon name="plus" size={15} />
+            <span>Nouvel objectif</span>
+          </button>
+        </div>
+      </header>
+
+      {data.goals.length > 0 ? (
+        <section className="card savings-summary">
+          <div className="savings-summary-main">
+            <span className="stat-label">Épargne totale</span>
+            <div className="savings-total tnum">{money(totals.saved)}</div>
+            <span className="muted">
+              sur {money(totals.target)} visés · {data.goals.length} objectif
+              {data.goals.length > 1 ? 's' : ''}
+            </span>
+          </div>
+          <div className="savings-summary-bar">
+            <Progress percent={totals.percent} tone={totals.percent >= 100 ? 'ok' : 'accent'} />
+            <span className="muted tnum">{Math.round(totals.percent)} % du programme atteint</span>
+          </div>
+        </section>
+      ) : null}
+
+      {data.goals.length === 0 ? (
+        <section className="card">
+          <EmptyState
+            icon="target"
+            title="Aucun objectif d’épargne"
+            text="Créez un objectif (voyage, matelas de sécurité, apport immobilier) et suivez sa progression versement après versement."
+            action={
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  setEditing(null)
+                  setFormOpen(true)
+                }}
+              >
+                <Icon name="plus" size={15} />
+                Créer un objectif
+              </button>
+            }
+          />
         </section>
       ) : (
-        <div className="grid g-2">
-          {goals.map((goal) => {
-            const progress = goalProgress(goal)
-            const days = daysUntil(goal.deadline)
-            const pace = goalMonthlyPace(goal)
+        <div className="grid-goals">
+          {data.goals.map((goal) => {
+            const projection = goalProjection(goal, todayIso())
+            const state = STATE_LABEL[projection.state] ?? STATE_LABEL['no-pace']
+            const recent = [...goal.contributions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3)
+
             return (
-              <section className="card goal-card" key={goal.id}>
-                <div className="card-pad">
-                  <div className="goal-head">
-                    <div>
-                      <div className="goal-name">{goal.name}</div>
-                      <div className="tx-meta">
-                        {goal.deadline ? `Due ${formatDate(goal.deadline, 'long')}` : 'No deadline'}
-                      </div>
-                    </div>
-                    <div className="row" style={{ gap: 6 }}>
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        onClick={() => openEdit(goal)}
-                        aria-label={`Edit ${goal.name}`}
-                      >
-                        <Pencil />
-                      </button>
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        onClick={() => setPendingDelete(goal)}
-                        aria-label={`Delete ${goal.name}`}
-                      >
-                        <Trash2 />
-                      </button>
-                    </div>
+              <article key={goal.id} className="card goal-card">
+                <div className="goal-head">
+                  <span className="goal-icon">
+                    <Icon name={goal.icon} size={18} />
+                  </span>
+                  <div className="goal-head-main">
+                    <h3 className="goal-title">{goal.name}</h3>
+                    {goal.description ? <p className="goal-desc">{goal.description}</p> : null}
                   </div>
-
-                  <div className="goal-amounts">
-                    <span className="goal-saved tnum">
-                      {formatMoney(goal.saved_amount, currency, { masked })}
-                    </span>
-                    <span className="goal-target tnum">
-                      of {formatMoney(goal.target_amount, currency, { masked })}
-                    </span>
-                  </div>
-
-                  <Progress value={progress} />
-
-                  <div className="row-between" style={{ marginTop: 10 }}>
-                    <span className="tx-meta" style={{ margin: 0 }}>
-                      {Math.round(progress)}% funded
-                    </span>
-                    {days !== null ? (
-                      <Badge tone={days < 0 ? 'red' : days < 30 ? 'warn' : 'neutral'}>
-                        {days < 0 ? `${Math.abs(days)} days late` : `${days} days left`}
-                      </Badge>
-                    ) : (
-                      <Badge tone="neutral">Open ended</Badge>
-                    )}
-                  </div>
-
-                  {pace !== null && pace > 0 ? (
-                    <div className="goal-deadline">
-                      Set aside {formatMoney(pace, currency, { masked })}/month to reach the target on time.
-                    </div>
-                  ) : null}
-
-                  <div className="goal-foot">
+                  <div className="goal-head-actions">
                     <button
                       type="button"
-                      className="btn btn-primary btn-sm"
-                      onClick={() => openMoney(goal, 'deposit')}
+                      className="icon-btn icon-btn-sm"
+                      onClick={() => {
+                        setEditing(goal)
+                        setFormOpen(true)
+                      }}
+                      aria-label={`Modifier ${goal.name}`}
                     >
-                      <ArrowDownLeft />
-                      Add money
+                      <Icon name="edit" size={14} />
                     </button>
                     <button
                       type="button"
-                      className="btn btn-quiet btn-sm"
-                      onClick={() => openMoney(goal, 'withdraw')}
-                      disabled={goal.saved_amount <= 0}
+                      className="icon-btn icon-btn-sm"
+                      onClick={() => setToDelete(goal)}
+                      aria-label={`Supprimer ${goal.name}`}
                     >
-                      <ArrowUpRight />
-                      Withdraw
+                      <Icon name="trash" size={14} />
                     </button>
                   </div>
                 </div>
-              </section>
+
+                <div className="goal-figures">
+                  <div>
+                    <span className="stat-label">Épargné</span>
+                    <div className="goal-saved tnum">{money(goal.saved)}</div>
+                  </div>
+                  <Badge tone={state.tone}>{state.label}</Badge>
+                </div>
+
+                <Progress percent={projection.percent} tone={projection.percent >= 100 ? 'ok' : 'accent'} />
+                <div className="goal-progress-meta">
+                  <span className="tnum">{Math.round(projection.percent)} %</span>
+                  <span className="muted">
+                    {projection.remaining > 0 ? `${money(projection.remaining)} restants` : 'Objectif financé'}
+                  </span>
+                </div>
+
+                <div className="goal-meta">
+                  <div className="goal-meta-row">
+                    <span>Objectif cible</span>
+                    <span className="tnum">{money(goal.target)}</span>
+                  </div>
+                  <div className="goal-meta-row">
+                    <span>Échéance</span>
+                    <span>{goal.deadline ? formatDate(goal.deadline, 'long') : 'Libre'}</span>
+                  </div>
+                  <div className="goal-meta-row">
+                    <span>Effort mensuel requis</span>
+                    <span className="tnum">{money(projection.requiredMonthly)}</span>
+                  </div>
+                  <div className="goal-meta-row">
+                    <span>Rythme actuel</span>
+                    <span className="tnum">{money(projection.pace)} / mois</span>
+                  </div>
+                  <div className="goal-meta-row">
+                    <span>Fin estimée</span>
+                    <span>{projection.estimatedDate ? formatDate(projection.estimatedDate, 'long') : 'À définir'}</span>
+                  </div>
+                </div>
+
+                {recent.length ? (
+                  <ul className="goal-history">
+                    {recent.map((c) => (
+                      <li key={c.id}>
+                        <span className="muted">{formatDate(c.date)}</span>
+                        <span className="goal-history-note">{c.note || (c.amount >= 0 ? 'Versement' : 'Retrait')}</span>
+                        <span className={`tnum ${c.amount >= 0 ? 'pos' : 'neg'}`}>
+                          {c.amount >= 0 ? '+' : '−'}
+                          {money(Math.abs(c.amount))}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+
+                <div className="goal-actions">
+                  <button type="button" className="btn btn-primary btn-sm" onClick={() => openDeposit(goal)}>
+                    <Icon name="plus" size={14} />
+                    Verser
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-quiet btn-sm"
+                    onClick={() => openWithdraw(goal)}
+                    disabled={goal.saved <= 0}
+                  >
+                    <Icon name="minus" size={14} />
+                    Retirer
+                  </button>
+                </div>
+              </article>
             )
           })}
         </div>
       )}
 
-      {recentActivity.length > 0 ? (
-        <section className="card">
-          <div className="card-head">
-            <div>
-              <h2 className="card-title">Goal activity</h2>
-              <p className="card-sub">Deposits and withdrawals, newest first</p>
-            </div>
-          </div>
-          <div className="card-pad">
-            <div className="tx-list">
-              {recentActivity.map((entry) => {
-                const goal = goals.find((item) => item.id === entry.goal_id)
-                return (
-                  <div className="tx-row" key={entry.id}>
-                    <span
-                      className="tx-icon"
-                      style={{
-                        background: entry.amount >= 0 ? 'rgba(197,243,107,0.14)' : 'rgba(255,255,255,0.05)',
-                        color: entry.amount >= 0 ? 'var(--accent)' : 'var(--muted)',
-                      }}
-                    >
-                      {entry.amount >= 0 ? <ArrowDownLeft size={15} /> : <ArrowUpRight size={15} />}
+      <section className="card">
+        <SectionHead
+          title="Derniers mouvements d’épargne"
+          subtitle="Versements et retraits, tous objectifs confondus"
+        />
+        {data.goals.some((g) => g.contributions.length) ? (
+          <ul className="flow-list">
+            {data.goals
+              .flatMap((g) => g.contributions.map((c) => ({ ...c, goal: g.name })))
+              .sort((a, b) => b.date.localeCompare(a.date))
+              .slice(0, 8)
+              .map((c) => (
+                <li key={c.id}>
+                  <span className="flow-icon">
+                    <Icon name={c.amount >= 0 ? 'arrow-up-right' : 'arrow-down-right'} size={14} />
+                  </span>
+                  <span className="flow-main">
+                    <span className="flow-title">{c.goal}</span>
+                    <span className="flow-meta">
+                      {formatDate(c.date, 'long')}
+                      {c.note ? ` · ${c.note}` : ''}
                     </span>
-                    <div className="tx-main">
-                      <div className="tx-desc">{entry.note || (entry.amount >= 0 ? 'Deposit' : 'Withdrawal')}</div>
-                      <div className="tx-meta">
-                        {goal?.name ?? 'Goal'} · {formatDate(entry.created_at.slice(0, 10))}
-                      </div>
-                    </div>
-                    <div
-                      className="tx-amount tnum"
-                      style={{ color: entry.amount >= 0 ? 'var(--accent)' : 'var(--text)' }}
-                    >
-                      {entry.amount >= 0 ? '+' : '−'}
-                      {formatMoney(Math.abs(entry.amount), currency, { masked })}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </section>
-      ) : null}
+                  </span>
+                  <span className={`tnum ${c.amount >= 0 ? 'pos' : 'neg'}`}>
+                    {c.amount >= 0 ? '+' : '−'}
+                    {money(Math.abs(c.amount))}
+                  </span>
+                </li>
+              ))}
+          </ul>
+        ) : (
+          <p className="chart-empty">Vos versements apparaîtront ici.</p>
+        )}
+      </section>
 
-      <Modal
-        open={goalOpen}
-        onClose={() => setGoalOpen(false)}
-        title={editing ? 'Edit goal' : 'New savings goal'}
-        subtitle="Targets and deadlines are optional — progress is always automatic."
-        footer={
-          <>
-            <button type="button" className="btn btn-quiet" onClick={() => setGoalOpen(false)} disabled={busy}>
-              Cancel
-            </button>
-            <button type="button" className="btn btn-primary" onClick={submitGoal} disabled={busy}>
-              {busy ? 'Saving…' : editing ? 'Save changes' : 'Create goal'}
-            </button>
-          </>
-        }
-      >
-        <div className="stack" style={{ gap: 16 }}>
-          <Field label="Goal name" htmlFor="goal-name">
-            <input
-              id="goal-name"
-              className="input"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="e.g. Emergency fund"
-              maxLength={80}
-            />
-          </Field>
+      <GoalModal
+        open={formOpen}
+        onClose={() => {
+          setFormOpen(false)
+          setEditing(null)
+        }}
+        initial={editing}
+      />
 
-          <div className="form-grid">
-            <Field label="Target amount" htmlFor="goal-target">
-              <input
-                id="goal-target"
-                className="input"
-                value={target}
-                onChange={(event) => setTarget(event.target.value)}
-                inputMode="decimal"
-                placeholder={`${currencySymbol(currency)}0.00`}
-              />
-            </Field>
-            <Field label="Already saved" htmlFor="goal-saved">
-              <input
-                id="goal-saved"
-                className="input"
-                value={saved}
-                onChange={(event) => setSaved(event.target.value)}
-                inputMode="decimal"
-                placeholder="0.00"
-              />
-            </Field>
-          </div>
-
-          <Field label="Deadline" htmlFor="goal-deadline">
-            <input
-              id="goal-deadline"
-              className="input"
-              type="date"
-              value={deadline}
-              min={todayIso()}
-              onChange={(event) => setDeadline(event.target.value)}
-            />
-          </Field>
-
-          {error ? <p className="field-error">{error}</p> : null}
-        </div>
-      </Modal>
-
-      <Modal
-        open={moneyGoal !== null}
-        onClose={() => setMoneyGoal(null)}
-        title={direction === 'deposit' ? 'Add money' : 'Withdraw money'}
-        subtitle={moneyGoal ? `${moneyGoal.name} · ${formatMoney(moneyGoal.saved_amount, currency, { masked })} saved` : ''}
-        footer={
-          <>
-            <button type="button" className="btn btn-quiet" onClick={() => setMoneyGoal(null)} disabled={busy}>
-              Cancel
-            </button>
-            <button type="button" className="btn btn-primary" onClick={submitMoney} disabled={busy}>
-              {busy ? 'Working…' : direction === 'deposit' ? 'Add money' : 'Withdraw'}
-            </button>
-          </>
-        }
-      >
-        <div className="stack" style={{ gap: 16 }}>
-          <div className="amount-input">
-            <span className="sym">{currencySymbol(currency)}</span>
-            <input
-              value={moneyAmount}
-              onChange={(event) => setMoneyAmount(event.target.value)}
-              inputMode="decimal"
-              placeholder="0.00"
-              aria-label="Amount"
-              autoFocus
-            />
-          </div>
-
-          <Field label="Note" htmlFor="goal-note">
-            <input
-              id="goal-note"
-              className="input"
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder={direction === 'deposit' ? 'Monthly transfer' : 'Used for repair'}
-              maxLength={120}
-            />
-          </Field>
-
-          {moneyError ? <p className="field-error">{moneyError}</p> : null}
-        </div>
-      </Modal>
+      <MoneyModal goal={money_goal} mode={moneyMode} onClose={() => setMoneyGoal(null)} />
 
       <ConfirmDialog
-        open={pendingDelete !== null}
-        title="Delete savings goal?"
-        text="The goal and its activity history will be removed. Your transactions are not affected."
-        confirmLabel="Delete goal"
-        busy={busy}
-        onConfirm={confirmDelete}
-        onClose={() => setPendingDelete(null)}
+        open={Boolean(toDelete)}
+        title="Supprimer cet objectif ?"
+        message={
+          toDelete
+            ? `« ${toDelete.name} » et son historique de versements seront supprimés. Vos transactions ne sont pas modifiées.`
+            : ''
+        }
+        confirmLabel="Supprimer"
+        tone="danger"
+        onConfirm={() => {
+          if (toDelete) deleteGoal(toDelete.id)
+          setToDelete(null)
+        }}
+        onCancel={() => setToDelete(null)}
       />
     </div>
   )
