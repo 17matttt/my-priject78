@@ -1,186 +1,205 @@
-import { useEffect, useState } from 'react'
-import { categoriesFor, categoryColor } from '../lib/constants'
-import { currencySymbol, parseAmount, todayIso } from '../lib/format'
-import type { Transaction, TxType } from '../lib/types'
+import { useEffect, useMemo, useState } from 'react'
+import { categoriesFor, PAYMENT_METHODS, RECURRENCES } from '../lib/constants'
+import { todayIso, parseAmount } from '../lib/format'
+import type { PaymentMethod, Recurrence, Transaction, TxType } from '../lib/types'
 import { useData } from '../context/DataContext'
-import { Field, Modal, useToast } from './UI'
+import { Field, Modal, Segmented, useToast } from './UI'
 
 interface Props {
   open: boolean
   onClose: () => void
   initial?: Transaction | null
-  currency: string
   defaultType?: TxType
+  defaultDate?: string
 }
 
-export default function TransactionModal({ open, onClose, initial, currency, defaultType = 'expense' }: Props) {
-  const { addTransaction, editTransaction } = useData()
-  const notify = useToast()
+export default function TransactionModal({ open, onClose, initial, defaultType = 'expense', defaultDate }: Props) {
+  const { addTransaction, updateTransaction } = useData()
+  const { toast } = useToast()
 
   const [type, setType] = useState<TxType>(defaultType)
+  const [name, setName] = useState('')
   const [amount, setAmount] = useState('')
-  const [category, setCategory] = useState(categoriesFor(defaultType)[0].id)
-  const [date, setDate] = useState(todayIso())
-  const [description, setDescription] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
+  const [category, setCategory] = useState('courses')
+  const [date, setDate] = useState(defaultDate ?? todayIso())
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('card')
+  const [recurrence, setRecurrence] = useState<Recurrence>('none')
+  const [notes, setNotes] = useState('')
+  const [errors, setErrors] = useState<Record<string, string>>({})
 
   useEffect(() => {
     if (!open) return
-    setError(null)
-    setBusy(false)
     if (initial) {
       setType(initial.type)
+      setName(initial.name)
       setAmount(String(initial.amount))
       setCategory(initial.category)
-      setDate(initial.occurred_on)
-      setDescription(initial.description ?? '')
+      setDate(initial.date)
+      setPaymentMethod(initial.paymentMethod)
+      setRecurrence(initial.recurrence)
+      setNotes(initial.notes)
     } else {
       setType(defaultType)
+      setName('')
       setAmount('')
-      setCategory(categoriesFor(defaultType)[0].id)
-      setDate(todayIso())
-      setDescription('')
+      setCategory(defaultType === 'income' ? 'salaire' : 'courses')
+      setDate(defaultDate ?? todayIso())
+      setPaymentMethod('card')
+      setRecurrence('none')
+      setNotes('')
     }
-  }, [open, initial, defaultType])
+    setErrors({})
+  }, [open, initial, defaultType, defaultDate])
 
-  const changeType = (next: TxType) => {
+  const categories = useMemo(() => categoriesFor(type), [type])
+
+  const handleTypeChange = (next: TxType) => {
     setType(next)
-    const options = categoriesFor(next)
-    if (!options.some((c) => c.id === category)) setCategory(options[0].id)
+    if (!categoriesFor(next).some((c) => c.id === category)) {
+      setCategory(categoriesFor(next)[0].id)
+    }
   }
 
-  const submit = async () => {
+  const submit = () => {
+    const nextErrors: Record<string, string> = {}
+    if (!name.trim()) nextErrors.name = 'Un libellé est requis.'
     const value = parseAmount(amount)
-    if (!Number.isFinite(value) || value <= 0) {
-      setError('Enter an amount greater than zero.')
-      return
-    }
-    if (!category) {
-      setError('Choose a category.')
-      return
-    }
-    if (!date) {
-      setError('Choose a date.')
-      return
+    if (!value || value <= 0) nextErrors.amount = 'Saisissez un montant supérieur à 0.'
+    if (!date) nextErrors.date = 'Choisissez une date.'
+    setErrors(nextErrors)
+    if (Object.keys(nextErrors).length) return
+
+    const payload = {
+      type,
+      name: name.trim(),
+      amount: Math.round(value * 100) / 100,
+      category,
+      date,
+      paymentMethod,
+      recurrence,
+      notes: notes.trim(),
     }
 
-    setBusy(true)
-    setError(null)
-    try {
-      const payload = { type, amount: value, category, description, occurred_on: date }
-      if (initial) {
-        await editTransaction(initial.id, payload)
-        notify('Transaction updated.', 'ok')
-      } else {
-        await addTransaction(payload)
-        notify(`${type === 'income' ? 'Income' : 'Expense'} added.`, 'ok')
-      }
-      onClose()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save this transaction.')
-    } finally {
-      setBusy(false)
+    if (initial) {
+      updateTransaction(initial.id, payload)
+      toast('Transaction mise à jour')
+    } else {
+      addTransaction(payload)
+      toast(type === 'income' ? 'Revenu ajouté' : 'Dépense ajoutée')
     }
+    onClose()
   }
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={initial ? 'Edit transaction' : 'New transaction'}
-      subtitle={initial ? 'Update the details of this entry.' : 'Record money in or out of your accounts.'}
+      title={initial ? 'Modifier la transaction' : 'Nouvelle transaction'}
+      subtitle="Les données restent stockées sur cet appareil."
       footer={
         <>
-          <button type="button" className="btn btn-quiet" onClick={onClose} disabled={busy}>
-            Cancel
+          <button type="button" className="btn btn-quiet" onClick={onClose}>
+            Annuler
           </button>
-          <button type="button" className="btn btn-primary" onClick={submit} disabled={busy}>
-            {busy ? 'Saving…' : initial ? 'Save changes' : 'Add transaction'}
+          <button type="button" className="btn btn-primary" onClick={submit}>
+            {initial ? 'Enregistrer' : 'Ajouter'}
           </button>
         </>
       }
     >
-      <div className="stack" style={{ gap: 16 }}>
-        <div className="segmented full">
-          <button
-            type="button"
-            className={type === 'expense' ? 'on' : ''}
-            onClick={() => changeType('expense')}
-          >
-            Expense
-          </button>
-          <button
-            type="button"
-            className={type === 'income' ? 'on lime' : ''}
-            onClick={() => changeType('income')}
-          >
-            Income
-          </button>
-        </div>
+      <div className="form-stack">
+        <Segmented
+          options={[
+            { id: 'expense', label: 'Dépense' },
+            { id: 'income', label: 'Revenu' },
+          ]}
+          value={type}
+          onChange={(v) => handleTypeChange(v as TxType)}
+        />
 
-        <div className="amount-input">
-          <span className="sym">{currencySymbol(currency)}</span>
+        <Field label="Libellé" error={errors.name}>
           <input
-            value={amount}
-            onChange={(event) => setAmount(event.target.value)}
-            inputMode="decimal"
-            placeholder="0.00"
-            aria-label="Amount"
+            className="input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Ex. Courses hebdomadaires"
             autoFocus
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') void submit()
-            }}
           />
-        </div>
+        </Field>
 
         <div className="form-grid">
-          <Field label="Category" htmlFor="tx-category">
+          <Field label="Montant" error={errors.amount}>
+            <div className="input-affix">
+              <span>€</span>
+              <input
+                className="input"
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0,00"
+              />
+            </div>
+          </Field>
+          <Field label="Date" error={errors.date}>
+            <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </Field>
+        </div>
+
+        <Field label="Catégorie">
+          <div className="cat-picker">
+            {categories.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className={`cat-chip ${category === c.id ? 'active' : ''}`}
+                onClick={() => setCategory(c.id)}
+                style={category === c.id ? { borderColor: c.color, color: c.color } : undefined}
+              >
+                <span className="cat-dot" style={{ background: c.color }} />
+                {c.label}
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        <div className="form-grid">
+          <Field label="Moyen de paiement">
             <select
-              id="tx-category"
               className="select"
-              value={category}
-              onChange={(event) => setCategory(event.target.value)}
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
             >
-              {categoriesFor(type).map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
+              {PAYMENT_METHODS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
                 </option>
               ))}
             </select>
           </Field>
-
-          <Field label="Date" htmlFor="tx-date">
-            <input
-              id="tx-date"
-              className="input"
-              type="date"
-              value={date}
-              max={todayIso()}
-              onChange={(event) => setDate(event.target.value)}
-            />
-          </Field>
-
-          <Field label="Description" htmlFor="tx-description" className="span-2">
-            <input
-              id="tx-description"
-              className="input"
-              value={description}
-              maxLength={200}
-              placeholder="e.g. Weekly grocery run"
-              onChange={(event) => setDescription(event.target.value)}
-            />
+          <Field label="Récurrence" hint="Les récurrences apparaissent dans le calendrier.">
+            <select
+              className="select"
+              value={recurrence}
+              onChange={(e) => setRecurrence(e.target.value as Recurrence)}
+            >
+              {RECURRENCES.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
           </Field>
         </div>
 
-        <div className="row" style={{ gap: 8 }}>
-          <span className="dot" style={{ background: categoryColor(category) }} />
-          <span className="tx-meta" style={{ margin: 0 }}>
-            {type === 'income' ? 'Money in' : 'Money out'} · {currency}
-          </span>
-        </div>
-
-        {error ? <p className="field-error">{error}</p> : null}
+        <Field label="Notes (optionnel)">
+          <textarea
+            className="textarea"
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Informations complémentaires…"
+          />
+        </Field>
       </div>
     </Modal>
   )
