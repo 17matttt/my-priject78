@@ -92,32 +92,6 @@ export function currentLocalSession(): LocalSession | null {
   return readJson<LocalSession | null>(SESSION_KEY, null)
 }
 
-export function localSignUp(email: string, password: string, name: string): LocalSession {
-  const clean = normalizeEmail(email)
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) throw new Error('Enter a valid email address.')
-  if (password.length < 8) throw new Error('Use at least 8 characters for your password.')
-  const list = accounts()
-  if (list.some((a) => a.email === clean)) {
-    throw new Error('An account with this email already exists on this device. Sign in instead.')
-  }
-  const salt = randomSalt()
-  const account: LocalAccount = {
-    id: clean,
-    email: clean,
-    name: name.trim() || clean.split('@')[0],
-    salt,
-    hash: '',
-    created_at: new Date().toISOString(),
-  }
-  // Synchronous hash is not available here; store a placeholder then upgrade.
-  account.hash = `pending:${salt}`
-  list.push(account)
-  writeJson(ACCOUNTS_KEY, list)
-  const session: LocalSession = { id: account.id, email: account.email, name: account.name }
-  writeJson(SESSION_KEY, session)
-  return session
-}
-
 export async function localSignUpAsync(
   email: string,
   password: string,
