@@ -137,6 +137,22 @@ export function PropertyCard({
             Reopen
           </Btn>
         )}
+        {property.status !== 'rejected' ? (
+          <Btn
+            variant="ghost"
+            size="sm"
+            icon={<X size={15} />}
+            onClick={() =>
+              moderateProperty(
+                property.id,
+                'rejected',
+                'Listing did not meet the publishing guidelines.',
+              )
+            }
+          >
+            Reject
+          </Btn>
+        ) : null}
         <div className="prop-actions-icons">
           <button className="icon-btn sm" onClick={() => onEdit(property)} aria-label={`Edit ${property.title}`}>
             <Pencil size={15} />
