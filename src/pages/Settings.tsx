@@ -1,269 +1,304 @@
-import { useMemo, useRef, useState } from 'react'
-import { useData } from '../context/DataContext'
-import { CURRENCIES } from '../lib/constants'
-import { downloadFile, formatDate, todayIso } from '../lib/format'
-import { parseImport, serialize, transactionsToCsv } from '../lib/storage'
-import { Icon } from '../components/Icon'
-import { Badge, ConfirmDialog, Field, SectionHead, Toggle, useToast } from '../components/UI'
+import { useEffect, useState } from 'react'
+import { Building2, Download, Globe2, Save, ShieldCheck, Trash2, Upload } from 'lucide-react'
+import { Avatar, Badge, Btn, Field, PageHeader, Panel } from '../components/UI'
+import { ConfirmDialog } from '../components/Confirm'
+import { useApp } from '../context/AppContext'
+import { downloadFile } from '../lib/export'
+import type { CompanySettings } from '../types'
 
-export default function Settings() {
-  const { data, updateProfile, loadDemo, clearAll, importData } = useData()
-  const { toast } = useToast()
-  const fileRef = useRef<HTMLInputElement>(null)
+function Toggle({
+  label,
+  desc,
+  on,
+  onChange,
+}: {
+  label: string
+  desc: string
+  on: boolean
+  onChange: () => void
+}) {
+  return (
+    <div className="toggle-row">
+      <div className="toggle-text">
+        <span className="toggle-label">{label}</span>
+        <span className="toggle-desc">{desc}</span>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        aria-label={label}
+        className={`toggle ${on ? 'is-on' : ''}`}
+        onClick={onChange}
+      >
+        <span className="toggle-knob" />
+      </button>
+    </div>
+  )
+}
 
-  const [name, setName] = useState(data.profile.name)
-  const [confirm, setConfirm] = useState<'reset' | 'demo' | 'quit' | null>(null)
+export function Settings() {
+  const { data, updateSettings, resetDemo, clearWorkspace } = useApp()
+  const [form, setForm] = useState<CompanySettings>(data.settings)
+  const [saved, setSaved] = useState(false)
+  const [confirm, setConfirm] = useState<'reset' | 'clear' | null>(null)
 
-  const storageSize = useMemo(() => {
-    const bytes = new Blob([serialize(data)]).size
-    return bytes > 1024 ? `${(bytes / 1024).toFixed(1)} Ko` : `${bytes} o`
-  }, [data])
+  useEffect(() => {
+    setForm(data.settings)
+  }, [data.settings])
 
-  const counts = {
-    transactions: data.transactions.length,
-    goals: data.goals.length,
-    subscriptions: data.subscriptions.length,
-    budgets: data.budgets.length,
-    events: data.events.length,
+  const dirty = JSON.stringify(form) !== JSON.stringify(data.settings)
+
+  const save = () => {
+    updateSettings(form)
+    setSaved(true)
+    window.setTimeout(() => setSaved(false), 2200)
   }
 
-  const exportCsv = () => {
-    if (!data.transactions.length) {
-      toast('Aucune transaction à exporter', 'warn')
-      return
-    }
-    downloadFile(`vault-transactions-${todayIso()}.csv`, transactionsToCsv(data.transactions), 'text/csv;charset=utf-8')
-    toast('Export CSV téléchargé')
-  }
-
-  const exportJson = () => {
-    downloadFile(`vault-sauvegarde-${todayIso()}.json`, serialize(data), 'application/json')
-    toast('Sauvegarde JSON téléchargée')
-  }
-
-  const onImport = async (file: File | null) => {
-    if (!file) return
-    try {
-      const text = await file.text()
-      const next = parseImport(text)
-      importData(next)
-      setName(next.profile.name)
-      toast('Sauvegarde importée')
-    } catch {
-      toast('Fichier invalide : sauvegarde JSON attendue', 'danger')
-    }
-    if (fileRef.current) fileRef.current.value = ''
-  }
-
-  const confirmAction = () => {
-    if (confirm === 'reset' || confirm === 'quit') {
-      clearAll()
-      setName('')
-      toast(confirm === 'quit' ? 'Mode démonstration quitté' : 'Toutes les données ont été effacées')
-    }
-    if (confirm === 'demo') {
-      loadDemo()
-      toast('Données de démonstration chargées')
-    }
-    setConfirm(null)
+  const exportBackup = () => {
+    downloadFile(
+      `vantage-backup-${new Date().toISOString().slice(0, 10)}.json`,
+      JSON.stringify(data, null, 2),
+      'application/json',
+    )
   }
 
   return (
-    <div className="page">
-      <header className="page-head">
-        <div>
-          <p className="eyebrow">Compte</p>
-          <h1 className="page-title">Réglages</h1>
-          <p className="page-sub">Profil, devise, confidentialité et gestion de vos données locales.</p>
-        </div>
-      </header>
+    <>
+      <PageHeader
+        eyebrow="Workspace"
+        title="Settings"
+        subtitle="Company profile, preferences and data controls."
+        actions={
+          <>
+            <Btn variant="ghost" icon={<Download size={16} />} onClick={exportBackup}>
+              Export JSON
+            </Btn>
+            <Btn icon={<Save size={16} />} onClick={save} disabled={!dirty && !saved}>
+              {saved ? 'Saved' : 'Save changes'}
+            </Btn>
+          </>
+        }
+      />
 
-      <section className="card">
-        <SectionHead title="Profil" subtitle="Utilisé pour personnaliser votre espace" />
-        <div className="settings-grid">
-          <Field label="Nom affiché">
-            <input
-              className="input"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Votre nom"
-              maxLength={40}
-            />
-          </Field>
-          <div className="settings-inline">
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => {
-                updateProfile({ name: name.trim() })
-                toast('Profil mis à jour')
-              }}
-            >
-              Enregistrer
-            </button>
-            <span className="muted">Aucun compte requis : ces informations restent sur cet appareil.</span>
-          </div>
-        </div>
-      </section>
-
-      <section className="card">
-        <SectionHead title="Devise" subtitle="Tous les montants sont convertis à l’affichage" />
-        <div className="settings-grid">
-          <Field label="Devise principale" hint="EUR par défaut">
-            <select
-              className="select"
-              value={data.profile.currency}
-              onChange={(e) => {
-                updateProfile({ currency: e.target.value })
-                toast(`Devise : ${e.target.value}`)
-              }}
-            >
-              {CURRENCIES.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.label} ({c.symbol})
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
-      </section>
-
-      <section className="card">
-        <SectionHead title="Confidentialité" subtitle="Masquez vos montants en un geste" />
-        <div className="setting-row">
-          <div>
-            <span className="setting-title">Mode discret</span>
-            <span className="muted">Remplace tous les montants par des puces à l’écran.</span>
-          </div>
-          <Toggle
-            checked={data.profile.privacyMode}
-            onChange={(value) => updateProfile({ privacyMode: value })}
-            label="Activer le mode discret"
-          />
-        </div>
-        <div className="setting-row">
-          <div>
-            <span className="setting-title">Stockage local uniquement</span>
-            <span className="muted">
-              Vos données ne quittent jamais ce navigateur. Elles sont conservées dans le stockage local du navigateur
-              ({storageSize} actuellement).
-            </span>
-          </div>
-          <Badge tone="ok">Local</Badge>
-        </div>
-      </section>
-
-      <section className="card">
-        <SectionHead title="Vos données" subtitle={`${counts.transactions} transactions · ${counts.goals} objectifs · ${counts.subscriptions} abonnements · ${counts.budgets} budgets · ${counts.events} événements`} />
-        <div className="data-actions">
-          <button type="button" className="btn btn-quiet" onClick={exportCsv}>
-            <Icon name="download" size={15} />
-            Exporter les transactions (CSV)
-          </button>
-          <button type="button" className="btn btn-quiet" onClick={exportJson}>
-            <Icon name="download" size={15} />
-            Sauvegarde complète (JSON)
-          </button>
-          <button type="button" className="btn btn-quiet" onClick={() => fileRef.current?.click()}>
-            <Icon name="upload" size={15} />
-            Importer une sauvegarde
-          </button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="application/json,.json"
-            className="sr-only"
-            onChange={(e) => onImport(e.target.files?.[0] ?? null)}
-          />
-        </div>
-        <p className="hint">
-          L’import remplace l’intégralité des données actuelles par le contenu du fichier. Exportez d’abord une
-          sauvegarde si vous souhaitez conserver l’état actuel.
-        </p>
-      </section>
-
-      <section className="card">
-        <SectionHead
-          title="Mode démonstration"
-          subtitle="Des données d’exemple clairement identifiées pour découvrir l’application"
-        />
-        {data.demo ? (
-          <div className="setting-row">
+      <div className="settings-grid">
+        <Panel tone="glass" title="Company profile" subtitle="Shown across the admin workspace">
+          <div className="profile-head">
+            <Avatar name={form.name || 'Vantage Estate'} hue={168} size={54} />
             <div>
-              <span className="setting-title">
-                Démonstration active <Badge tone="accent">Données fictives</Badge>
-              </span>
-              <span className="muted">
-                Les montants affichés sont des exemples générés pour la visite guidée, pas vos données réelles.
-              </span>
+              <strong>{form.name || 'Vantage Estate'}</strong>
+              <span>{form.legalName || 'Legal entity not set'}</span>
             </div>
-            <button type="button" className="btn btn-quiet" onClick={() => setConfirm('quit')}>
-              Quitter la démo
-            </button>
+            <Badge tone="accent">
+              <ShieldCheck size={13} /> Verified
+            </Badge>
           </div>
-        ) : (
-          <div className="setting-row">
-            <div>
-              <span className="setting-title">Charger la démonstration</span>
-              <span className="muted">Remplace vos données actuelles par un jeu d’exemple daté et cohérent.</span>
+          <div className="form-grid">
+            <Field label="Display name">
+              <input
+                className="input"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Vantage Estate"
+              />
+            </Field>
+            <Field label="Legal name">
+              <input
+                className="input"
+                value={form.legalName}
+                onChange={(e) => setForm({ ...form, legalName: e.target.value })}
+                placeholder="Vantage Estate Group SARL"
+              />
+            </Field>
+            <Field label="Contact email">
+              <input
+                className="input"
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                placeholder="hello@vantage.estate"
+              />
+            </Field>
+            <Field label="Phone">
+              <input
+                className="input"
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                placeholder="+33 1 84 88 20 10"
+              />
+            </Field>
+            <Field label="Head office" wide>
+              <input
+                className="input"
+                value={form.address}
+                onChange={(e) => setForm({ ...form, address: e.target.value })}
+                placeholder="18 Rue de la Paix, 75002 Paris"
+              />
+            </Field>
+          </div>
+        </Panel>
+
+        <div className="settings-col">
+          <Panel tone="glass" title="Regional" subtitle="Currency and timezone">
+            <div className="form-grid">
+              <Field label="Currency">
+                <select
+                  className="input"
+                  value={form.currency}
+                  onChange={(e) =>
+                    setForm({ ...form, currency: e.target.value as CompanySettings['currency'] })
+                  }
+                >
+                  <option value="EUR">EUR — Euro (€)</option>
+                  <option value="USD">USD — US Dollar ($)</option>
+                  <option value="GBP">GBP — Pound (£)</option>
+                  <option value="AED">AED — Dirham (د.إ)</option>
+                </select>
+              </Field>
+              <Field label="Timezone">
+                <select
+                  className="input"
+                  value={form.timezone}
+                  onChange={(e) => setForm({ ...form, timezone: e.target.value })}
+                >
+                  {[
+                    'Europe/Paris',
+                    'Europe/London',
+                    'Europe/Lisbon',
+                    'America/New_York',
+                    'Asia/Dubai',
+                  ].map((tz) => (
+                    <option key={tz} value={tz}>
+                      {tz}
+                    </option>
+                  ))}
+                </select>
+              </Field>
             </div>
-            <button type="button" className="btn btn-quiet" onClick={() => setConfirm('demo')}>
-              Charger la démo
-            </button>
-          </div>
-        )}
-      </section>
-
-      <section className="card danger-card">
-        <SectionHead title="Zone sensible" subtitle="Ces actions sont définitives sur cet appareil" />
-        <div className="setting-row">
-          <div>
-            <span className="setting-title">Réinitialiser toutes les données</span>
-            <span className="muted">
-              Supprime transactions, budgets, objectifs, abonnements et événements. Aucune récupération possible.
-            </span>
-          </div>
-          <button type="button" className="btn btn-danger" onClick={() => setConfirm('reset')}>
-            <Icon name="trash" size={15} />
-            Tout effacer
-          </button>
-        </div>
-      </section>
-
-      <section className="card muted-card">
-        <div className="about-row">
-          <span className="brand-mark brand-mark-sm">V</span>
-          <div>
-            <strong>VAULT</strong>
-            <p className="muted">
-              YOUR MONEY. YOUR CONTROL. · Application locale, sans compte ni connexion bancaire. Dernière mise à jour
-              des données : {formatDate(todayIso(), 'long')}.
+            <p className="muted-note">
+              <Globe2 size={13} /> Amounts are formatted with the selected currency everywhere.
             </p>
-          </div>
+          </Panel>
+
+          <Panel tone="glass" title="Notifications" subtitle="What lands in your inbox">
+            <Toggle
+              label="Email alerts"
+              desc="New listings, approvals and client messages."
+              on={form.emailAlerts}
+              onChange={() => setForm({ ...form, emailAlerts: !form.emailAlerts })}
+            />
+            <Toggle
+              label="Push notifications"
+              desc="Real-time alerts in the admin console."
+              on={form.pushAlerts}
+              onChange={() => setForm({ ...form, pushAlerts: !form.pushAlerts })}
+            />
+            <Toggle
+              label="Weekly digest"
+              desc="Performance summary every Monday."
+              on={form.weeklyDigest}
+              onChange={() => setForm({ ...form, weeklyDigest: !form.weeklyDigest })}
+            />
+          </Panel>
         </div>
-      </section>
+      </div>
+
+      <div className="split-2">
+        <Panel tone="glass" title="Security" subtitle="Access and visibility">
+          <Toggle
+            label="Require two-factor authentication"
+            desc="Every staff sign-in needs a second factor."
+            on={form.twoFactorRequired}
+            onChange={() => setForm({ ...form, twoFactorRequired: !form.twoFactorRequired })}
+          />
+          <Toggle
+            label="Public agency profile"
+            desc="Show the agency page to clients."
+            on={form.publicProfile}
+            onChange={() => setForm({ ...form, publicProfile: !form.publicProfile })}
+          />
+          <Toggle
+            label="Auto-approve trusted owners"
+            desc="Skip moderation for verified accounts."
+            on={form.autoApprove}
+            onChange={() => setForm({ ...form, autoApprove: !form.autoApprove })}
+          />
+          <Toggle
+            label="Maintenance mode"
+            desc="Pause public traffic while working."
+            on={form.maintenanceMode}
+            onChange={() => setForm({ ...form, maintenanceMode: !form.maintenanceMode })}
+          />
+        </Panel>
+
+        <Panel tone="glass" title="Data & account" subtitle="Backups and destructive actions">
+          <div className="danger-zone">
+            <div className="danger-item">
+              <span className="danger-icon safe">
+                <Download size={18} />
+              </span>
+              <div>
+                <h4>Export backup</h4>
+                <p>Download every record as a JSON file.</p>
+              </div>
+              <Btn variant="soft" onClick={exportBackup}>
+                Export
+              </Btn>
+            </div>
+            <div className="danger-item">
+              <span className="danger-icon">
+                <Upload size={18} />
+              </span>
+              <div>
+                <h4>Restore demo data</h4>
+                <p>Bring back the sample workspace.</p>
+              </div>
+              <Btn variant="soft" onClick={() => setConfirm('reset')}>
+                Restore
+              </Btn>
+            </div>
+            <div className="danger-item">
+              <span className="danger-icon warning">
+                <Trash2 size={18} />
+              </span>
+              <div>
+                <h4>Clear workspace</h4>
+                <p>Delete all data in this browser.</p>
+              </div>
+              <Btn variant="danger" onClick={() => setConfirm('clear')}>
+                Clear
+              </Btn>
+            </div>
+            <div className="danger-item">
+              <span className="danger-icon">
+                <Building2 size={18} />
+              </span>
+              <div>
+                <h4>Workspace ID</h4>
+                <p>Local persistence namespace.</p>
+              </div>
+              <code className="code-chip">vantage-estate</code>
+            </div>
+          </div>
+        </Panel>
+      </div>
 
       <ConfirmDialog
-        open={confirm !== null}
-        title={
-          confirm === 'demo'
-            ? 'Charger les données de démonstration ?'
-            : confirm === 'quit'
-              ? 'Quitter le mode démonstration ?'
-              : 'Effacer toutes les données ?'
-        }
-        message={
-          confirm === 'demo'
-            ? 'Vos données actuelles seront remplacées par un jeu de données fictives clairement identifié.'
-            : confirm === 'quit'
-              ? 'Les données fictives seront supprimées afin de démarrer avec un espace vide et propre.'
-              : 'Transactions, budgets, objectifs, abonnements et événements seront définitivement supprimés de cet appareil.'
-        }
-        confirmLabel={confirm === 'demo' ? 'Charger' : 'Confirmer'}
-        tone="danger"
-        onConfirm={confirmAction}
-        onCancel={() => setConfirm(null)}
+        open={confirm === 'reset'}
+        title="Restore demo data"
+        message="Your current records will be replaced with the sample workspace."
+        confirmLabel="Restore demo"
+        onConfirm={resetDemo}
+        onClose={() => setConfirm(null)}
       />
-    </div>
+      <ConfirmDialog
+        open={confirm === 'clear'}
+        title="Clear all data"
+        message="Every property, client, invoice and task will be deleted permanently."
+        confirmLabel="Delete everything"
+        onConfirm={clearWorkspace}
+        onClose={() => setConfirm(null)}
+      />
+    </>
   )
 }
