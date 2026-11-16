@@ -1,376 +1,386 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useData } from '../context/DataContext'
 import {
-  balanceSeries,
-  budgetStatus,
-  categoryBreakdown,
-  flowSeries,
-  goalProjection,
-  monthlyComparison,
-  netWorth,
-  savingsRate,
-  totalsFor,
-  upcomingBills,
+  ArrowUpRight,
+  Building2,
+  CheckCircle2,
+  Clock3,
+  CreditCard,
+  Download,
+  Headphones,
+  Megaphone,
+  Plus,
+  Server,
+  ShieldAlert,
+  TrendingUp,
+  Users,
+  Wallet,
+} from 'lucide-react'
+import { Avatar, Badge, Btn, Panel, PageHeader, Segmented, StatCard } from '../components/UI'
+import { AreaChart, BarChart, Donut, Gauge } from '../components/Charts'
+import { PropertyCard } from '../components/PropertyCard'
+import { PropertyFormModal, PropertyReviewModal } from '../components/PropertyModal'
+import { ConfirmDialog } from '../components/Confirm'
+import { useApp } from '../context/AppContext'
+import {
+  currentMonth,
+  growth,
+  kindSplit,
+  lastMonthKeys,
+  previousMonth,
+  propertyStats,
+  revenueSeries,
+  statusSplit,
+  userStats,
 } from '../lib/analytics'
-import { categoryById, paymentLabel } from '../lib/constants'
-import {
-  RANGES,
-  currentMonthKey,
-  formatDate,
-  formatMonth,
-  rangeStart,
-  relativeDay,
-  todayIso,
-  type RangeKey,
-} from '../lib/format'
-import { AreaChart, BarsChart, CategoryBars } from '../components/Charts'
-import { Icon } from '../components/Icon'
-import TransactionModal from '../components/TransactionModal'
-import { EmptyState, Progress, SectionHead, Segmented, StatCard } from '../components/UI'
+import { downloadJson } from '../lib/export'
+import { shortDate } from '../lib/format'
+import type { ActivityType, Property } from '../types'
 
-export default function Dashboard() {
-  const { data, money, hasData } = useData()
-  const [range, setRange] = useState<RangeKey>('30d')
-  const [txOpen, setTxOpen] = useState(false)
+const ACTIVITY_ICON: Record<ActivityType, typeof Building2> = {
+  property: Building2,
+  user: Users,
+  finance: Wallet,
+  task: CheckCircle2,
+  support: Headphones,
+  system: Server,
+  announcement: Megaphone,
+}
 
-  const today = todayIso()
-  const month = currentMonthKey()
-  const from = rangeStart(range)
+export function Dashboard() {
+  const { data, money, deleteProperty } = useApp()
+  const [range, setRange] = useState<'6' | '9' | '12'>('9')
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<Property | null>(null)
+  const [reviewing, setReviewing] = useState<Property | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<Property | null>(null)
 
-  const totals = useMemo(() => totalsFor(data.transactions, from, today), [data.transactions, from, today])
-  const comparison = useMemo(() => monthlyComparison(data.transactions, month), [data.transactions, month])
-  const balance = useMemo(() => balanceSeries(data.transactions, range), [data.transactions, range])
-  const flow = useMemo(() => flowSeries(data.transactions, range), [data.transactions, range])
-  const cats = useMemo(() => categoryBreakdown(data.transactions, from, today), [data.transactions, from, today])
-  const budget = useMemo(
-    () => budgetStatus(data.budgets.find((b) => b.month === month), data.transactions, month),
-    [data.budgets, data.transactions, month],
+  const stats = propertyStats(data)
+  const users = userStats(data)
+  const series = revenueSeries(data, Number(range))
+  const month = currentMonth(data)
+  const previous = previousMonth(data)
+  const revenueGrowth = growth(month.income, previous.income)
+  const approvalRate = stats.total ? Math.round((stats.approved / stats.total) * 100) : 0
+
+  const submissionSpark = lastMonthKeys(6).map(
+    ({ key }) => data.properties.filter((p) => p.submittedAt.slice(0, 7) === key).length,
   )
-  const bills = useMemo(() => upcomingBills(data, 21).slice(0, 5), [data])
-  const recent = useMemo(
-    () => [...data.transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6),
-    [data.transactions],
+  const userSpark = lastMonthKeys(6).map(
+    ({ key }) => data.users.filter((u) => u.lastActive.slice(0, 7) === key).length + 1,
   )
-  const goals = useMemo(() => data.goals.slice(0, 3), [data.goals])
 
-  const rate = savingsRate(totals.income, totals.expense)
-  const balanceNow = netWorth(data.transactions)
+  const queue = data.properties
+    .filter((p) => p.status === 'pending')
+    .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))
+    .slice(0, 3)
 
-  if (!hasData) {
-    return (
-      <div className="page">
-        <header className="page-head">
-          <div>
-            <p className="eyebrow">{formatDate(today, 'long')}</p>
-            <h1 className="page-title">Votre tableau de bord</h1>
-            <p className="page-sub">Ajoutez votre première opération pour voir vos chiffres prendre vie.</p>
-          </div>
-        </header>
-        <div className="card">
-          <EmptyState
-            icon="wallet"
-            title="Aucune donnée pour l'instant"
-            text="VAULT calcule tout localement, sans compte ni connexion bancaire. Commencez par une transaction, ou explorez avec des données de démonstration clairement identifiées."
-            action={
-              <div className="empty-actions">
-                <button type="button" className="btn btn-primary" onClick={() => setTxOpen(true)}>
-                  <Icon name="plus" size={15} />
-                  Ajouter une transaction
-                </button>
-                <Link to="/reglages" className="btn btn-quiet">
-                  Charger la démonstration
-                </Link>
-              </div>
-            }
-          />
-        </div>
-        <TransactionModal open={txOpen} onClose={() => setTxOpen(false)} />
-      </div>
-    )
+  const team = [...data.team].sort((a, b) => b.revenue - a.revenue).slice(0, 5)
+  const openTasks = data.tasks.filter((t) => t.status !== 'done').length
+  const openTickets = data.tickets.filter((t) => t.status !== 'resolved').length
+
+  const exportReport = () => {
+    downloadJson('vantage-overview-report.json', {
+      generatedAt: new Date().toISOString(),
+      propertyStats: stats,
+      userStats: users,
+      revenue: series,
+      currentMonth: month,
+    })
   }
 
   return (
-    <div className="page">
-      <header className="page-head">
-        <div>
-          <p className="eyebrow">{formatDate(today, 'long')}</p>
-          <h1 className="page-title">
-            {data.profile.name ? `Bonjour, ${data.profile.name}` : 'Vue d’ensemble'}
-          </h1>
-          <p className="page-sub">Votre situation financière, calculée à partir de vos données.</p>
-        </div>
-        <div className="page-actions">
-          <Segmented
-            options={RANGES.map((r) => ({ id: r.id, label: r.label }))}
-            value={range}
-            onChange={setRange}
-            size="sm"
-          />
-          <button type="button" className="btn btn-primary" onClick={() => setTxOpen(true)}>
-            <Icon name="plus" size={15} />
-            <span>Transaction</span>
-          </button>
-        </div>
-      </header>
-
-      <div className="grid-4">
-        <StatCard
-          label="Solde total"
-          value={money(balanceNow)}
-          icon="wallet"
-          accent
-          meta={`${data.transactions.length} opérations enregistrées`}
-        />
-        <StatCard
-          label="Revenus"
-          value={money(totals.income)}
-          icon="arrow-down-right"
-          delta={{ value: comparison.incomeChange, suffix: 'vs mois dernier' }}
-        />
-        <StatCard
-          label="Dépenses"
-          value={money(totals.expense)}
-          icon="arrow-up-right"
-          delta={{ value: comparison.expenseChange, suffix: 'vs mois dernier' }}
-        />
-        <StatCard
-          label="Épargne nette"
-          value={money(totals.net)}
-          icon="piggy"
-          meta={`Taux d'épargne ${rate.toFixed(0)} %`}
-        />
-      </div>
-
-      <div className="grid-main">
-        <section className="card span-2">
-          <SectionHead
-            title="Évolution du solde"
-            subtitle={`Sur ${RANGES.find((r) => r.id === range)?.label.toLowerCase()}`}
-            action={<span className="pill">{money(balanceNow)}</span>}
-          />
-          <AreaChart
-            points={balance.map((p) => ({ label: p.label, value: p.value }))}
-            formatValue={(v) => money(v)}
-            height={230}
-          />
-        </section>
-
-        <section className="card">
-          <SectionHead title="Revenus / dépenses" subtitle="Comparaison par période" />
-          <BarsChart
-            points={flow.map((p) => ({ label: p.label, income: p.income, expense: p.expense }))}
-            formatValue={(v) => money(v)}
-            height={230}
-          />
-          <div className="legend">
-            <span className="legend-item">
-              <span className="legend-dot income" /> Revenus
-            </span>
-            <span className="legend-item">
-              <span className="legend-dot expense" /> Dépenses
-            </span>
-          </div>
-        </section>
-      </div>
-
-      <div className="grid-main">
-        <section className="card">
-          <SectionHead
-            title="Répartition des dépenses"
-            subtitle={`${cats.length} catégorie${cats.length > 1 ? 's' : ''} sur la période`}
-            action={
-              <Link to="/analyses" className="link-sm">
-                Détail
-                <Icon name="arrow-right" size={13} />
-              </Link>
-            }
-          />
-          {cats.length ? (
-            <CategoryBars slices={cats.slice(0, 6)} formatValue={(v) => money(v)} />
-          ) : (
-            <div className="chart-empty">Aucune dépense sur cette période</div>
-          )}
-        </section>
-
-        <section className="card">
-          <SectionHead
-            title="Budget du mois"
-            subtitle={formatMonth(month)}
-            action={
-              <Link to="/budgets" className="link-sm">
-                Gérer
-                <Icon name="arrow-right" size={13} />
-              </Link>
-            }
-          />
-          {budget.overallBudget > 0 ? (
-            <div className="budget-mini">
-              <div className="budget-mini-top">
-                <span className="tnum strong">{money(budget.overallSpent)}</span>
-                <span className="muted">sur {money(budget.overallBudget)}</span>
-              </div>
-              <Progress percent={budget.overallPercent} tone={budget.overallState} />
-              <div className="budget-mini-foot">
-                <span className={`state-${budget.overallState}`}>
-                  {Math.round(budget.overallPercent)} % utilisé
-                </span>
-                <span className="muted">
-                  {budget.overallRemaining >= 0
-                    ? `${money(budget.overallRemaining)} restants`
-                    : `${money(Math.abs(budget.overallRemaining))} de dépassement`}
-                </span>
-              </div>
-              <ul className="mini-lines">
-                {budget.lines.slice(0, 3).map((line) => (
-                  <li key={line.category}>
-                    <span className="mini-line-icon" style={{ color: line.color }}>
-                      <Icon name={line.icon} size={14} />
-                    </span>
-                    <span className="mini-line-label">{line.label}</span>
-                    <span className={`mini-line-value state-${line.state}`}>{Math.round(line.percent)} %</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <EmptyState
-              icon="chart"
-              title="Aucun budget défini"
-              text="Fixez une enveloppe mensuelle pour suivre vos dépenses catégorie par catégorie."
-              action={
-                <Link to="/budgets" className="btn btn-quiet btn-sm">
-                  Créer un budget
-                </Link>
-              }
+    <>
+      <PageHeader
+        eyebrow="Workspace overview"
+        title="Dashboard"
+        subtitle="Portfolio performance, moderation queue and revenue in one place."
+        actions={
+          <>
+            <Segmented
+              value={range}
+              onChange={setRange}
+              options={[
+                { value: '6', label: '6M' },
+                { value: '9', label: '9M' },
+                { value: '12', label: '12M' },
+              ]}
             />
-          )}
-        </section>
+            <Btn variant="ghost" icon={<Download size={16} />} onClick={exportReport}>
+              Export
+            </Btn>
+            <Btn
+              icon={<Plus size={16} />}
+              onClick={() => {
+                setEditing(null)
+                setFormOpen(true)
+              }}
+            >
+              Add listing
+            </Btn>
+          </>
+        }
+      />
+
+      <div className="stat-grid">
+        <StatCard
+          label="Total properties"
+          value={String(stats.total)}
+          delta={growth(stats.total, Math.max(1, stats.total - 3))}
+          hint={`${stats.featured} featured · ${stats.rejected} rejected`}
+          icon={<Building2 size={19} />}
+          spark={submissionSpark}
+        />
+        <StatCard
+          label="Pending approvals"
+          value={String(stats.pending)}
+          hint={`${money(stats.pendingValue, true)} awaiting review`}
+          icon={<Clock3 size={19} />}
+          accent="#F2A93B"
+        />
+        <StatCard
+          label="Active listings"
+          value={String(stats.activeListings)}
+          hint={`${money(stats.portfolioValue, true)} portfolio value`}
+          icon={<TrendingUp size={19} />}
+          accent="#4C8DFF"
+        />
+        <StatCard
+          label="Total users"
+          value={String(users.total)}
+          hint={`${users.active} active · ${users.admins} admins`}
+          icon={<Users size={19} />}
+          accent="#8B7CF6"
+          spark={userSpark}
+        />
       </div>
 
-      <div className="grid-main">
-        <section className="card">
-          <SectionHead
-            title="Transactions récentes"
-            subtitle="Les derniers mouvements"
-            action={
-              <Link to="/transactions" className="link-sm">
-                Tout voir
-                <Icon name="arrow-right" size={13} />
-              </Link>
-            }
-          />
-          {recent.length ? (
-            <ul className="tx-list">
-              {recent.map((tx) => {
-                const cat = categoryById(tx.category)
-                return (
-                  <li key={tx.id} className="tx-row">
-                    <span className="tx-icon" style={{ color: cat.color, background: `${cat.color}14` }}>
-                      <Icon name={cat.icon} size={16} />
-                    </span>
-                    <span className="tx-main">
-                      <span className="tx-title">{tx.name}</span>
-                      <span className="tx-meta">
-                        {cat.label} · {formatDate(tx.date)} · {paymentLabel(tx.paymentMethod)}
-                      </span>
-                    </span>
-                    <span className={`tx-amount ${tx.type === 'income' ? 'pos' : 'neg'}`}>
-                      {tx.type === 'income' ? '+' : '−'}
-                      {money(tx.amount)}
-                    </span>
-                  </li>
-                )
-              })}
-            </ul>
-          ) : (
-            <div className="chart-empty">Aucune transaction enregistrée</div>
-          )}
-        </section>
-
-        <section className="card">
-          <SectionHead
-            title="Prochaines échéances"
-            subtitle="21 jours à venir"
-            action={
-              <Link to="/calendrier" className="link-sm">
-                Calendrier
-                <Icon name="arrow-right" size={13} />
-              </Link>
-            }
-          />
-          {bills.length ? (
-            <ul className="bill-list">
-              {bills.map((bill) => (
-                <li key={bill.id} className="bill-row">
-                  <span className="bill-date">
-                    <span className="bill-day">{bill.date.slice(8, 10)}</span>
-                    <span className="bill-month">{formatMonth(bill.date.slice(0, 7), 'short')}</span>
-                  </span>
-                  <span className="bill-main">
-                    <span className="bill-title">{bill.title}</span>
-                    <span className="bill-meta">{relativeDay(bill.date)}</span>
-                  </span>
-                  {bill.amount !== null ? (
-                    <span className="bill-amount tnum">−{money(bill.amount)}</span>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="chart-empty">Aucune échéance dans les 3 prochaines semaines</div>
-          )}
-        </section>
-      </div>
-
-      <section className="card">
-        <SectionHead
-          title="Objectifs d'épargne"
-          subtitle={`${data.goals.length} objectif${data.goals.length > 1 ? 's' : ''} en cours`}
+      <div className="grid grid-2-1">
+        <Panel
+          title="Revenue performance"
+          subtitle={`${range} month trend of recorded income`}
           action={
-            <Link to="/epargne" className="link-sm">
-              Gérer
-              <Icon name="arrow-right" size={13} />
+            <Badge tone={revenueGrowth >= 0 ? 'success' : 'danger'}>
+              {revenueGrowth >= 0 ? '+' : ''}
+              {revenueGrowth.toFixed(1)}% MoM
+            </Badge>
+          }
+        >
+          <div className="revenue-head">
+            <div>
+              <span className="kpi-label">Income this month</span>
+              <strong className="kpi-value">{money(month.income)}</strong>
+            </div>
+            <div>
+              <span className="kpi-label">Net</span>
+              <strong className={`kpi-value ${month.net >= 0 ? 'pos' : 'neg'}`}>
+                {money(month.net)}
+              </strong>
+            </div>
+            <div>
+              <span className="kpi-label">Expenses</span>
+              <strong className="kpi-value">{money(month.expense)}</strong>
+            </div>
+          </div>
+          <AreaChart
+            data={series.map((m) => ({ label: m.label, value: m.income }))}
+            format={(v) => money(v, true)}
+            height={230}
+          />
+        </Panel>
+
+        <Panel title="Moderation health" subtitle="Approval rate across the portfolio" tone="glass">
+          <div className="gauge-block">
+            <Gauge value={approvalRate} label="approved" sub={`${stats.approved}/${stats.total} listings`} />
+          </div>
+          <ul className="mini-list">
+            <li>
+              <span className="dot dot-success" /> Approved
+              <strong>{stats.approved}</strong>
+            </li>
+            <li>
+              <span className="dot dot-warning" /> Pending
+              <strong>{stats.pending}</strong>
+            </li>
+            <li>
+              <span className="dot dot-danger" /> Rejected
+              <strong>{stats.rejected}</strong>
+            </li>
+          </ul>
+          <Link className="panel-link" to="/moderation">
+            Open moderation <ArrowUpRight size={15} />
+          </Link>
+        </Panel>
+      </div>
+
+      <div className="grid grid-2">
+        <Panel title="Income vs expenses" subtitle="Cash flow recorded in the workspace">
+          <BarChart
+            data={series.map((m) => ({ label: m.label, a: m.income, b: m.expense }))}
+            format={(v) => money(v, true)}
+          />
+        </Panel>
+
+        <Panel title="Portfolio mix" subtitle="Listings by property type">
+          <div className="split-row">
+            <Donut
+              slices={kindSplit(data.properties)}
+              centerLabel="listings"
+              centerValue={String(stats.total)}
+            />
+            <div className="split-side">
+              <Donut
+                slices={statusSplit(data.properties)}
+                size={132}
+                thickness={16}
+                centerLabel="status"
+                centerValue={`${approvalRate}%`}
+              />
+              <div className="split-notes">
+                <span>
+                  <strong>{openTasks}</strong> open tasks
+                </span>
+                <span>
+                  <strong>{openTickets}</strong> open tickets
+                </span>
+              </div>
+            </div>
+          </div>
+        </Panel>
+      </div>
+
+      <div className="grid grid-2-1">
+        <Panel
+          title="Awaiting moderation"
+          subtitle="Newest submissions needing a decision"
+          action={
+            <Link className="panel-link inline" to="/moderation">
+              View all <ArrowUpRight size={14} />
             </Link>
           }
-        />
-        {goals.length ? (
-          <div className="goal-mini-grid">
-            {goals.map((goal) => {
-              const proj = goalProjection(goal)
+        >
+          {queue.length ? (
+            <div className="prop-grid prop-grid-tight">
+              {queue.map((property) => (
+                <PropertyCard
+                  key={property.id}
+                  property={property}
+                  onReview={setReviewing}
+                  onEdit={(p) => {
+                    setEditing(p)
+                    setFormOpen(true)
+                  }}
+                  onDelete={setPendingDelete}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="empty-inline">
+              <CheckCircle2 size={20} />
+              <div>
+                <strong>Queue is clear</strong>
+                <p>Every submitted listing has been reviewed.</p>
+              </div>
+            </div>
+          )}
+        </Panel>
+
+        <Panel title="Recent activity" subtitle="Latest workspace events" tone="glass">
+          <ul className="activity-feed">
+            {data.activity.slice(0, 6).map((entry) => {
+              const Icon = ACTIVITY_ICON[entry.type] ?? ShieldAlert
               return (
-                <div key={goal.id} className="goal-mini">
-                  <div className="goal-mini-head">
-                    <span className="goal-mini-icon">
-                      <Icon name={goal.icon} size={16} />
-                    </span>
-                    <span className="goal-mini-name">{goal.name}</span>
-                    <span className="goal-mini-percent tnum">{Math.round(proj.percent)} %</span>
+                <li key={entry.id}>
+                  <span className={`feed-icon feed-${entry.type}`}>
+                    <Icon size={15} />
+                  </span>
+                  <div className="feed-text">
+                    <p>
+                      <strong>{entry.actor}</strong> {entry.action}{' '}
+                      <span className="feed-target">{entry.target}</span>
+                    </p>
+                    <small>{shortDate(entry.at)}</small>
                   </div>
-                  <Progress percent={proj.percent} tone={proj.percent >= 100 ? 'accent' : 'ok'} />
-                  <div className="goal-mini-foot">
-                    <span className="tnum">{money(goal.saved)}</span>
-                    <span className="muted">sur {money(goal.target)}</span>
-                  </div>
-                </div>
+                </li>
               )
             })}
-          </div>
-        ) : (
-          <EmptyState
-            icon="target"
-            title="Aucun objectif"
-            text="Créez un objectif pour visualiser votre progression vers une cible concrète."
-            action={
-              <Link to="/epargne" className="btn btn-quiet btn-sm">
-                Créer un objectif
-              </Link>
-            }
-          />
-        )}
-      </section>
+          </ul>
+          <Link className="panel-link" to="/activity">
+            Full activity log <ArrowUpRight size={15} />
+          </Link>
+        </Panel>
+      </div>
 
-      <TransactionModal open={txOpen} onClose={() => setTxOpen(false)} />
-    </div>
+      <Panel title="Top performing agents" subtitle="Ranked by closed revenue">
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Agent</th>
+                <th>Role</th>
+                <th>Deals</th>
+                <th>Revenue</th>
+                <th>Rating</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {team.map((member) => (
+                <tr key={member.id}>
+                  <td>
+                    <div className="cell-person">
+                      <Avatar name={member.name} hue={member.hue} size={34} />
+                      <div>
+                        <strong>{member.name}</strong>
+                        <small>{member.email}</small>
+                      </div>
+                    </div>
+                  </td>
+                  <td>{member.role}</td>
+                  <td>{member.deals}</td>
+                  <td className="cell-strong">{money(member.revenue, true)}</td>
+                  <td>
+                    <Badge tone={member.rating >= 4.5 ? 'success' : 'neutral'}>
+                      {member.rating.toFixed(1)} ★
+                    </Badge>
+                  </td>
+                  <td>
+                    <span className={`presence presence-${member.presence}`}>
+                      {member.presence}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="table-foot">
+          <span>
+            <CreditCard size={14} /> {data.invoices.filter((i) => i.status === 'paid').length} paid
+            invoices
+          </span>
+          <Link className="panel-link inline" to="/reports">
+            Full reports <ArrowUpRight size={14} />
+          </Link>
+        </div>
+      </Panel>
+
+      <PropertyFormModal
+        open={formOpen}
+        property={editing}
+        onClose={() => {
+          setFormOpen(false)
+          setEditing(null)
+        }}
+      />
+      <PropertyReviewModal property={reviewing} onClose={() => setReviewing(null)} />
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title="Delete listing"
+        message={pendingDelete ? `“${pendingDelete.title}” will be removed permanently.` : ''}
+        onConfirm={() => pendingDelete && deleteProperty(pendingDelete.id)}
+        onClose={() => setPendingDelete(null)}
+      />
+    </>
   )
 }
