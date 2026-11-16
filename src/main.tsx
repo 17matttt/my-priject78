@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { AppProvider } from './context/AppContext'
 import './index.css'
+import './glass.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
