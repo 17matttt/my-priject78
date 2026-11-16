@@ -22,7 +22,7 @@ export function ConfirmDialog({
       onClose={onClose}
       title={title}
       subtitle={message}
-      width="sm"
+      size="sm"
       footer={
         <>
           <Btn variant="ghost" onClick={onClose}>

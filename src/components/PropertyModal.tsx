@@ -328,7 +328,7 @@ export function PropertyReviewModal({
             {rejecting ? 'Confirm rejection' : 'Reject'}
           </Btn>
           <Btn
-            variant="success"
+            variant="primary"
             icon={<Check size={16} />}
             onClick={() => {
               moderateProperty(property.id, 'approved')

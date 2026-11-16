@@ -17,7 +17,6 @@ import type {
   Client,
   CompanySettings,
   FinanceEntry,
-  Invoice,
   InvoiceStatus,
   Property,
   PropertyStatus,
