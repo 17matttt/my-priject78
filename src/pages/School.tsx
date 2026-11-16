@@ -13,7 +13,6 @@ import {
   ShieldCheck,
   Trash2,
   Upload,
-  UserRound,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import {
@@ -27,12 +26,11 @@ import {
   PageHead,
   Panel,
   Progress,
-  Segmented,
   Select,
   StatCard,
   Textarea,
 } from '../components/UI'
-import { BarPairs, Ring } from '../components/Charts'
+import { AreaChart } from '../components/Charts'
 import { fmtDateShort, fmtTime, isoDate, daysUntil, todayISO, weekdayShort } from '../lib/date'
 import { round, uid } from '../lib/format'
 import { nextExam, nextHomework, overallAverage, subjectAverages } from '../lib/insights'
@@ -75,7 +73,6 @@ export default function School() {
   }, [state.grades, state.classes, state.homework])
 
   const chartData = averages.slice(0, 7).map((entry) => ({ label: entry.subject.slice(0, 8), value: entry.average }))
-  const maxGrade = 20
 
   const exportSchool = () => {
     downloadText(
@@ -131,7 +128,7 @@ export default function School() {
         <StatCard
           label="Next test"
           value={exam ? fmtDateShort(isoDate(new Date(exam.start))) : '—'}
-          hint={exam ? `${exam.title} · ${daysUntil(new Date(exam.start))} day(s)` : 'No test scheduled'}
+          hint={exam ? `${exam.title} · ${daysUntil(exam.start)} day(s)` : 'No test scheduled'}
           icon={<AlertTriangle size={16} />}
         />
         <StatCard
@@ -155,7 +152,7 @@ export default function School() {
                 />
               ) : (
                 <>
-                  <BarPairs data={chartData} max={maxGrade} />
+                  <AreaChart data={chartData} />
                   <div className="stack" style={{ gap: 6, marginTop: 12 }}>
                     {averages.map((entry) => (
                       <div key={entry.subject} className="row" style={{ gap: 10 }}>
@@ -337,7 +334,7 @@ export default function School() {
                         {entry.details ? ` · ${entry.details}` : ''}
                       </span>
                     </span>
-                    <Badge tone={entry.done ? 'good' : daysUntil(new Date(entry.due)) < 0 ? 'bad' : daysUntil(new Date(entry.due)) <= 2 ? 'warn' : 'neutral'}>
+                    <Badge tone={entry.done ? 'good' : daysUntil(entry.due) < 0 ? 'bad' : daysUntil(entry.due) <= 2 ? 'warn' : 'neutral'}>
                       {fmtDateShort(entry.due)}
                     </Badge>
                     <button type="button" className="icon-btn" aria-label={`Edit ${entry.title}`} onClick={() => setHomeworkForm(entry)}>
@@ -374,7 +371,7 @@ export default function School() {
                   .sort((a, b) => a.start.localeCompare(b.start))
                 return (
                   <div key={weekday} className="tt-col">
-                    <div className="tt-day">{weekdayShort(new Date(2024, 0, weekday))}</div>
+                    <div className="tt-day">{weekdayShort(weekday)}</div>
                     {slots.length === 0 && <div className="tt-empty">—</div>}
                     {slots.map((slot) => (
                       <button
@@ -770,7 +767,7 @@ function SlotModal({
           <Select value={weekday} onChange={(event) => setWeekday(event.target.value)}>
             {WEEKDAYS.map((entry) => (
               <option key={entry} value={entry}>
-                {weekdayShort(new Date(2024, 0, entry))}
+                {weekdayShort(Number(entry))}
               </option>
             ))}
           </Select>
