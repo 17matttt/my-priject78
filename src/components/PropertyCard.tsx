@@ -120,7 +120,7 @@ export function PropertyCard({
         </Btn>
         {property.status !== 'approved' ? (
           <Btn
-            variant="success"
+            variant="primary"
             size="sm"
             icon={<Check size={15} />}
             onClick={() => moderateProperty(property.id, 'approved')}
