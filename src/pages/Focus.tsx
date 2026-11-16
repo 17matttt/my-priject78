@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Coffee, Flame, Pause, Play, RotateCcw, Target, Timer, Trash2 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { Badge, Btn, EmptyState, Field, Input, PageHead, Panel, Progress, Ring, Select } from '../components/UI'
-import { AreaChart } from '../components/Charts'
+import { Badge, Btn, EmptyState, Field, Input, PageHead, Panel, Progress, Select } from '../components/UI'
+import { AreaChart, Ring } from '../components/Charts'
 import {
   focusByLabel,
   focusMinutesOn,

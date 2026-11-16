@@ -54,10 +54,14 @@ function loadState(): VaultState {
   }
 }
 
+export type CollectionItem<K extends CollectionKey> = VaultState[K] extends (infer T)[] ? T : never
+
+type Upsert = <K extends CollectionKey>(key: K, item: CollectionItem<K>) => void
+
 export interface AppApi {
   state: VaultState
   set: (fn: (state: VaultState) => VaultState) => void
-  upsert: (key: CollectionKey, item: { id: string }) => void
+  upsert: Upsert
   remove: (key: CollectionKey, id: string) => void
   updateProfile: (patch: Partial<VaultState['profile']>) => void
   updatePrefs: (patch: Partial<VaultState['prefs']>) => void
@@ -95,14 +99,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setState((current) => ({ ...fn(current), updatedAt: nowStamp() }))
   }, [])
 
-  const upsert = useCallback(
-    (key: CollectionKey, item: { id: string }) => {
+  const upsert = useCallback<Upsert>(
+    (key, item) => {
       set((current) => {
         const list = current[key] as { id: string }[]
-        const exists = list.some((entry) => entry.id === item.id)
+        const nextItem = item as { id: string }
+        const exists = list.some((entry) => entry.id === nextItem.id)
         const next = exists
-          ? list.map((entry) => (entry.id === item.id ? item : entry))
-          : [item, ...list]
+          ? list.map((entry) => (entry.id === nextItem.id ? nextItem : entry))
+          : [nextItem, ...list]
         return { ...current, [key]: next } as VaultState
       })
     },

@@ -28,7 +28,7 @@ import {
   unreadMail,
 } from '../lib/insights'
 import { useInstallPrompt } from '../lib/pwa'
-import { Avatar, Badge, Btn, Field, Input, Modal, Select, Textarea } from './UI'
+import { Avatar, Btn, Field, Input, Modal, Select, Textarea } from './UI'
 import { fmtDateShort, fmtTime, todayISO } from '../lib/date'
 import { uid } from '../lib/format'
 import { downloadText } from '../lib/download'

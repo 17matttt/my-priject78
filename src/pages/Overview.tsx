@@ -18,9 +18,9 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { Badge, Btn, EmptyState, Panel, Progress, Ring, Row, StatCard } from '../components/UI'
-import { AreaChart } from '../components/Charts'
-import { durationLabel, fmtDateLong, fmtDateShort, fmtTime, parseDate } from '../lib/date'
+import { Badge, Btn, EmptyState, Panel, Row, StatCard } from '../components/UI'
+import { AreaChart, Ring } from '../components/Charts'
+import { durationLabel, fmtDateLong, fmtDateShort, fmtTime, isoDate, parseDate } from '../lib/date'
 import {
   CATEGORY_LABELS,
   agendaFor,
@@ -84,7 +84,7 @@ export default function Overview() {
         <div className="hero-glow" aria-hidden="true" />
         <div className="hero-inner">
           <div className="hero-eyebrow">
-            <span className="dot-live" /> {fmtDateLong(today)}
+            <span className="dot-live" /> {fmtDateLong(isoDate(today))}
           </div>
           <h1 className="hero-title">
             {greeting()}, {state.profile.name.split(' ')[0] || 'there'}
