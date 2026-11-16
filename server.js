@@ -45,8 +45,23 @@ const server = http.createServer((req, res) => {
     return send(res, 400, 'Bad Request')
   }
 
+  if (pathname.length > 1) {
+    // Tolerate trailing slashes so /healthz/ and /tasks/ resolve like /healthz and /tasks.
+    pathname = pathname.replace(/\/+$/, '') || '/'
+  }
+
   if (pathname === '/healthz') {
-    return send(res, 200, 'ok', { 'Content-Type': 'text/plain; charset=utf-8' })
+    return send(res, 200, 'ok', { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' })
+  }
+
+  // Dynamic health probe used to confirm the Node server (not a static fallback) is serving.
+  if (pathname === '/api/health') {
+    return send(
+      res,
+      200,
+      JSON.stringify({ status: 'ok', service: 'vault', time: new Date().toISOString() }),
+      { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+    )
   }
 
   const safePath = normalize(pathname).replace(/^(\.\.[/\\])+/, '')
