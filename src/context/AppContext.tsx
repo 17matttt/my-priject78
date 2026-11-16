@@ -4,7 +4,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -77,22 +76,21 @@ const AppContext = createContext<AppApi | null>(null)
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<VaultState>(loadState)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
-  const timer = useRef<number | null>(null)
 
+  // Persist synchronously on every change: a reload or a closed tab must never lose an edit.
   useEffect(() => {
-    setSaveStatus('saving')
-    if (timer.current) window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => {
+    const flush = () => {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
         setSaveStatus('saved')
       } catch {
         setSaveStatus('error')
       }
-    }, 180)
-    return () => {
-      if (timer.current) window.clearTimeout(timer.current)
     }
+    setSaveStatus('saving')
+    flush()
+    window.addEventListener('pagehide', flush)
+    return () => window.removeEventListener('pagehide', flush)
   }, [state])
 
   const set = useCallback((fn: (current: VaultState) => VaultState) => {
