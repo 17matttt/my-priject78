@@ -1,228 +1,182 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react'
-import { createPortal } from 'react-dom'
-import { Icon } from './Icon'
+import { useEffect, useId, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { X } from 'lucide-react'
+import { initials } from '../lib/format'
+import { Sparkline } from './Charts'
 
-/* ---------------------------------- toasts --------------------------------- */
+type Tone = 'success' | 'warning' | 'danger' | 'neutral' | 'info' | 'accent'
 
-type Tone = 'ok' | 'warn' | 'danger' | 'info'
-interface ToastItem {
-  id: number
-  message: string
-  tone: Tone
+export function Badge({ tone = 'neutral', children }: { tone?: Tone; children: ReactNode }) {
+  return <span className={`badge badge-${tone}`}>{children}</span>
 }
 
-interface ToastApi {
-  toast: (message: string, tone?: Tone) => void
-}
-
-const ToastContext = createContext<ToastApi | null>(null)
-
-export function ToastProvider({ children }: { children: ReactNode }) {
-  const [items, setItems] = useState<ToastItem[]>([])
-  const counter = useRef(0)
-
-  const toast = useCallback((message: string, tone: Tone = 'ok') => {
-    counter.current += 1
-    const id = counter.current
-    setItems((prev) => [...prev, { id, message, tone }])
-    window.setTimeout(() => {
-      setItems((prev) => prev.filter((t) => t.id !== id))
-    }, 3400)
-  }, [])
-
-  const api = useMemo(() => ({ toast }), [toast])
-
+export function Btn({
+  variant = 'primary',
+  size = 'md',
+  icon,
+  children,
+  className = '',
+  ...rest
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: 'primary' | 'dark' | 'ghost' | 'soft' | 'danger' | 'outline'
+  size?: 'sm' | 'md'
+  icon?: ReactNode
+}) {
   return (
-    <ToastContext.Provider value={api}>
-      {children}
-      <div className="toast-host" role="status" aria-live="polite">
-        {items.map((item) => (
-          <div key={item.id} className={`toast toast-${item.tone}`}>
-            <Icon name={item.tone === 'danger' ? 'alert' : item.tone === 'warn' ? 'info' : 'check-circle'} size={16} />
-            <span>{item.message}</span>
-          </div>
-        ))}
-      </div>
-    </ToastContext.Provider>
+    <button className={`btn btn-${variant} btn-${size} ${className}`} {...rest}>
+      {icon ? <span className="btn-icon">{icon}</span> : null}
+      {children ? <span>{children}</span> : null}
+    </button>
   )
 }
 
-export function useToast(): ToastApi {
-  const ctx = useContext(ToastContext)
-  if (!ctx) throw new Error('useToast doit être utilisé dans ToastProvider')
-  return ctx
+export function Panel({
+  title,
+  subtitle,
+  action,
+  children,
+  tone = 'light',
+  className = '',
+}: {
+  title?: ReactNode
+  subtitle?: ReactNode
+  action?: ReactNode
+  children: ReactNode
+  tone?: 'light' | 'glass'
+  className?: string
+}) {
+  return (
+    <section className={`panel panel-${tone} ${className}`}>
+      {title || action ? (
+        <header className="panel-head">
+          <div className="panel-head-text">
+            {title ? <h3 className="panel-title">{title}</h3> : null}
+            {subtitle ? <p className="panel-sub">{subtitle}</p> : null}
+          </div>
+          {action ? <div className="panel-action">{action}</div> : null}
+        </header>
+      ) : null}
+      {children}
+    </section>
+  )
 }
 
-/* ---------------------------------- modal ---------------------------------- */
-
-interface ModalProps {
-  open: boolean
-  onClose: () => void
+export function PageHeader({
+  eyebrow,
+  title,
+  subtitle,
+  actions,
+}: {
+  eyebrow?: string
   title: string
   subtitle?: string
-  children: ReactNode
-  footer?: ReactNode
-  width?: 'sm' | 'md' | 'lg'
+  actions?: ReactNode
+}) {
+  return (
+    <header className="page-head">
+      <div className="page-head-text">
+        {eyebrow ? <span className="page-eyebrow">{eyebrow}</span> : null}
+        <h1 className="page-title">{title}</h1>
+        {subtitle ? <p className="page-sub">{subtitle}</p> : null}
+      </div>
+      {actions ? <div className="page-actions">{actions}</div> : null}
+    </header>
+  )
 }
 
-export function Modal({ open, onClose, title, subtitle, children, footer, width = 'md' }: ModalProps) {
+export function StatCard({
+  label,
+  value,
+  hint,
+  delta,
+  icon,
+  spark,
+  accent = '#17C3B2',
+  onLight = true,
+}: {
+  label: string
+  value: string
+  hint?: string
+  delta?: number
+  icon: ReactNode
+  spark?: number[]
+  accent?: string
+  onLight?: boolean
+}) {
+  const positive = (delta ?? 0) >= 0
+  return (
+    <article className={`stat-card ${onLight ? 'stat-light' : 'stat-glass'}`}>
+      <div className="stat-top">
+        <span className="stat-icon" style={{ background: `${accent}1f`, color: accent }}>
+          {icon}
+        </span>
+        {typeof delta === 'number' ? (
+          <span className={`stat-delta ${positive ? 'up' : 'down'}`}>
+            {positive ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}%
+          </span>
+        ) : null}
+      </div>
+      <p className="stat-label">{label}</p>
+      <div className="stat-value-row">
+        <strong className="stat-value">{value}</strong>
+        {spark && spark.length > 1 ? (
+          <span className="stat-spark">
+            <Sparkline values={spark} color={accent} />
+          </span>
+        ) : null}
+      </div>
+      {hint ? <p className="stat-hint">{hint}</p> : null}
+    </article>
+  )
+}
+
+export function Modal({
+  open,
+  title,
+  subtitle,
+  onClose,
+  children,
+  footer,
+  size = 'md',
+}: {
+  open: boolean
+  title: string
+  subtitle?: string
+  onClose: () => void
+  children: ReactNode
+  footer?: ReactNode
+  size?: 'sm' | 'md' | 'lg'
+}) {
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
-    document.addEventListener('keydown', onKey)
-    const prev = document.body.style.overflow
+    window.addEventListener('keydown', onKey)
+    const previous = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => {
-      document.removeEventListener('keydown', onKey)
-      document.body.style.overflow = prev
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = previous
     }
   }, [open, onClose])
 
   if (!open) return null
 
-  return createPortal(
+  return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`modal modal-${width}`} role="dialog" aria-modal="true" aria-label={title}>
+      <div className={`modal modal-${size}`} role="dialog" aria-modal="true" aria-label={title}>
         <header className="modal-head">
           <div>
             <h2 className="modal-title">{title}</h2>
             {subtitle ? <p className="modal-sub">{subtitle}</p> : null}
           </div>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Fermer">
-            <Icon name="x" size={18} />
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close dialog">
+            <X size={18} />
           </button>
         </header>
         <div className="modal-body">{children}</div>
         {footer ? <footer className="modal-foot">{footer}</footer> : null}
       </div>
-    </div>,
-    document.body,
-  )
-}
-
-interface ConfirmProps {
-  open: boolean
-  title: string
-  message: string
-  confirmLabel?: string
-  tone?: 'danger' | 'primary'
-  onConfirm: () => void
-  onCancel: () => void
-}
-
-export function ConfirmDialog({
-  open,
-  title,
-  message,
-  confirmLabel = 'Confirmer',
-  tone = 'primary',
-  onConfirm,
-  onCancel,
-}: ConfirmProps) {
-  return (
-    <Modal
-      open={open}
-      onClose={onCancel}
-      title={title}
-      width="sm"
-      footer={
-        <>
-          <button type="button" className="btn btn-quiet" onClick={onCancel}>
-            Annuler
-          </button>
-          <button
-            type="button"
-            className={`btn ${tone === 'danger' ? 'btn-danger' : 'btn-primary'}`}
-            onClick={onConfirm}
-          >
-            {confirmLabel}
-          </button>
-        </>
-      }
-    >
-      <p className="confirm-text">{message}</p>
-    </Modal>
-  )
-}
-
-/* -------------------------------- primitives -------------------------------- */
-
-export function EmptyState({
-  icon,
-  title,
-  text,
-  action,
-}: {
-  icon: string
-  title: string
-  text: string
-  action?: ReactNode
-}) {
-  return (
-    <div className="empty">
-      <div className="empty-icon">
-        <Icon name={icon} size={22} />
-      </div>
-      <h3 className="empty-title">{title}</h3>
-      <p className="empty-text">{text}</p>
-      {action ? <div className="empty-action">{action}</div> : null}
-    </div>
-  )
-}
-
-export function Progress({
-  percent,
-  tone = 'ok',
-  thin = false,
-}: {
-  percent: number
-  tone?: 'ok' | 'warn' | 'over' | 'accent'
-  thin?: boolean
-}) {
-  const clamped = Math.max(0, Math.min(100, percent))
-  return (
-    <div className={`progress ${thin ? 'progress-thin' : ''}`}>
-      <div className={`progress-fill tone-${tone}`} style={{ width: `${clamped}%` }} />
-    </div>
-  )
-}
-
-export function Segmented<T extends string>({
-  options,
-  value,
-  onChange,
-  size = 'md',
-}: {
-  options: { id: T; label: string }[]
-  value: T
-  onChange: (v: T) => void
-  size?: 'sm' | 'md'
-}) {
-  return (
-    <div className={`segmented ${size === 'sm' ? 'segmented-sm' : ''}`} role="tablist">
-      {options.map((opt) => (
-        <button
-          key={opt.id}
-          type="button"
-          role="tab"
-          aria-selected={value === opt.id}
-          className={`seg-item ${value === opt.id ? 'active' : ''}`}
-          onClick={() => onChange(opt.id)}
-        >
-          {opt.label}
-        </button>
-      ))}
     </div>
   )
 }
@@ -230,22 +184,97 @@ export function Segmented<T extends string>({
 export function Field({
   label,
   hint,
-  error,
   children,
-  className = '',
+  wide = false,
 }: {
   label: string
   hint?: string
-  error?: string
   children: ReactNode
+  wide?: boolean
+}) {
+  return (
+    <label className={`field ${wide ? 'field-wide' : ''}`}>
+      <span className="field-label">{label}</span>
+      {children}
+      {hint ? <span className="field-hint">{hint}</span> : null}
+    </label>
+  )
+}
+
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+  className = '',
+}: {
+  options: { value: T; label: string; count?: number }[]
+  value: T
+  onChange: (value: T) => void
   className?: string
 }) {
   return (
-    <label className={`field ${className}`}>
-      <span className="label">{label}</span>
-      {children}
-      {error ? <span className="error">{error}</span> : hint ? <span className="hint">{hint}</span> : null}
-    </label>
+    <div className={`segmented ${className}`} role="tablist">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          role="tab"
+          aria-selected={value === opt.value}
+          className={`segmented-item ${value === opt.value ? 'is-active' : ''}`}
+          onClick={() => onChange(opt.value)}
+        >
+          {opt.label}
+          {typeof opt.count === 'number' ? <span className="segmented-count">{opt.count}</span> : null}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+export function Progress({ value, tone = 'accent' }: { value: number; tone?: 'accent' | 'warning' | 'danger' | 'success' }) {
+  const pct = Math.max(0, Math.min(100, value))
+  return (
+    <div className="progress" role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
+      <span className={`progress-fill progress-${tone}`} style={{ width: `${pct}%` }} />
+    </div>
+  )
+}
+
+export function Avatar({ name, hue = 174, size = 38 }: { name: string; hue?: number; size?: number }) {
+  return (
+    <span
+      className="avatar"
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.max(11, size * 0.34),
+        background: `linear-gradient(135deg, hsl(${hue} 62% 46%), hsl(${(hue + 42) % 360} 70% 34%))`,
+      }}
+      aria-hidden="true"
+    >
+      {initials(name)}
+    </span>
+  )
+}
+
+export function EmptyState({
+  icon,
+  title,
+  text,
+  action,
+}: {
+  icon: ReactNode
+  title: string
+  text: string
+  action?: ReactNode
+}) {
+  return (
+    <div className="empty-state">
+      <span className="empty-icon">{icon}</span>
+      <h3>{title}</h3>
+      <p>{text}</p>
+      {action ? <div className="empty-action">{action}</div> : null}
+    </div>
   )
 }
 
@@ -253,100 +282,56 @@ export function Toggle({
   checked,
   onChange,
   label,
+  description,
 }: {
   checked: boolean
-  onChange: (v: boolean) => void
+  onChange: (next: boolean) => void
   label: string
+  description?: string
 }) {
+  const id = useId()
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      className={`toggle ${checked ? 'on' : ''}`}
-      onClick={() => onChange(!checked)}
-    >
-      <span className="toggle-dot" />
-    </button>
+    <div className="toggle-row">
+      <div className="toggle-text">
+        <label htmlFor={id} className="toggle-label">
+          {label}
+        </label>
+        {description ? <p className="toggle-desc">{description}</p> : null}
+      </div>
+      <button
+        id={id}
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        className={`toggle ${checked ? 'is-on' : ''}`}
+        onClick={() => onChange(!checked)}
+      >
+        <span className="toggle-knob" />
+      </button>
+    </div>
   )
 }
 
-export function Badge({
-  children,
-  tone = 'muted',
-}: {
-  children: ReactNode
-  tone?: 'muted' | 'ok' | 'warn' | 'danger' | 'accent'
-}) {
-  return <span className={`badge badge-${tone}`}>{children}</span>
-}
-
-export function StatCard({
-  label,
+export function SearchInput({
   value,
-  meta,
-  delta,
-  icon,
-  accent = false,
+  onChange,
+  placeholder,
+  className = '',
 }: {
-  label: string
   value: string
-  meta?: ReactNode
-  delta?: { value: number | null; suffix?: string }
-  icon?: string
-  accent?: boolean
+  onChange: (value: string) => void
+  placeholder: string
+  className?: string
 }) {
   return (
-    <div className={`stat ${accent ? 'stat-accent' : ''}`}>
-      <div className="stat-top">
-        <span className="stat-label">{label}</span>
-        {icon ? (
-          <span className="stat-icon">
-            <Icon name={icon} size={16} />
-          </span>
-        ) : null}
-      </div>
-      <div className="stat-value tnum">{value}</div>
-      <div className="stat-foot">
-        {delta ? (
-          <span className={`delta ${delta.value === null ? 'flat' : delta.value >= 0 ? 'up' : 'down'}`}>
-            <Icon name={delta.value !== null && delta.value < 0 ? 'arrow-down-right' : 'arrow-up-right'} size={13} />
-            {delta.value === null ? 'Nouveau' : `${Math.abs(delta.value).toFixed(0)} %`}
-            {delta.suffix ? <span className="delta-suffix">{delta.suffix}</span> : null}
-          </span>
-        ) : null}
-        {meta ? <span className="stat-meta">{meta}</span> : null}
-      </div>
-    </div>
-  )
-}
-
-export function SectionHead({
-  title,
-  subtitle,
-  action,
-}: {
-  title: string
-  subtitle?: string
-  action?: ReactNode
-}) {
-  return (
-    <div className="section-head">
-      <div>
-        <h2 className="section-title">{title}</h2>
-        {subtitle ? <p className="section-sub">{subtitle}</p> : null}
-      </div>
-      {action}
-    </div>
-  )
-}
-
-export function InfoRow({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="info-row">
-      <span>{label}</span>
-      <span className="info-value">{value}</span>
-    </div>
+    <input
+      type="search"
+      className={`input search-input ${className}`}
+      value={value}
+      placeholder={placeholder}
+      aria-label={placeholder}
+      onChange={(e) => onChange(e.target.value)}
+    />
   )
 }
