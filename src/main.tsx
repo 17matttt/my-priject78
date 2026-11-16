@@ -5,6 +5,7 @@ import App from './App'
 import { AppProvider } from './context/AppContext'
 import { registerServiceWorker } from './lib/pwa'
 import './index.css'
+import './os.css'
 
 registerServiceWorker()
 
