@@ -1,0 +1,42 @@
+{
+  "name": "VAULT — Personal OS",
+  "short_name": "VAULT",
+  "description": "One beautiful, intelligent place to manage your entire digital life: tasks, school, mail, calendar, focus and documents.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "background_color": "#080b14",
+  "theme_color": "#080b14",
+  "orientation": "any",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["productivity", "utilities", "education"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    { "name": "Tasks", "short_name": "Tasks", "url": "/tasks" },
+    { "name": "Calendar", "short_name": "Calendar", "url": "/calendar" },
+    { "name": "Focus room", "short_name": "Focus", "url": "/focus" },
+    { "name": "School", "short_name": "School", "url": "/school" }
+  ]
+}
