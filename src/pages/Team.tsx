@@ -54,7 +54,7 @@ export function Team() {
         tone="glass"
         title="Directory"
         subtitle={`${data.team.length} people`}
-        actions={<SearchInput value={query} onChange={setQuery} placeholder="Search team…" />}
+        action={<SearchInput value={query} onChange={setQuery} placeholder="Search team…" />}
       >
         <div className="team-grid">
           {members.map((member) => (

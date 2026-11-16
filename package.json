@@ -1,9 +1,9 @@
 {
-  "name": "vault-finance",
+  "name": "vantage-estate-admin",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "VAULT — YOUR MONEY. YOUR CONTROL.",
+  "description": "Vantage Estate — real estate administration platform",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
