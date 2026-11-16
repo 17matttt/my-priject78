@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { Avatar, Badge, EmptyState, PageHeader, Panel, SearchInput, Segmented } from '../components/UI'
 import { useApp } from '../context/AppContext'
-import { dayMonthTime } from '../lib/format'
+import { relativeTime } from '../lib/format'
 import type { ActivityType } from '../types'
 
 const ICONS: Record<ActivityType, typeof Building2> = {
@@ -95,7 +95,7 @@ export function ActivityLog() {
                       <em>{entry.target}</em>
                     </div>
                     <div className="timeline-meta">
-                      <span>{dayMonthTime(entry.at)}</span>
+                      <span>{relativeTime(entry.at)}</span>
                       <Badge tone="neutral">{entry.type}</Badge>
                     </div>
                   </div>
