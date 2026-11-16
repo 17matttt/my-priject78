@@ -93,7 +93,7 @@ export function Billing() {
         tone="glass"
         title="Invoices"
         subtitle={`${visible.length} documents`}
-        actions={
+        action={
           <div className="toolbar-inline">
             <Segmented
               value={filter}

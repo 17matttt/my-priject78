@@ -106,7 +106,7 @@ export function Announcements() {
         tone="glass"
         title="Broadcasts"
         subtitle={`${visible.length} messages`}
-        actions={
+        action={
           <Segmented
             value={filter}
             onChange={setFilter}

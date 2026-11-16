@@ -154,7 +154,7 @@ export function Finance() {
         tone="glass"
         title="Transactions"
         subtitle={`${entries.length} entries`}
-        actions={
+        action={
           <div className="toolbar-inline">
             <Segmented
               value={filter}

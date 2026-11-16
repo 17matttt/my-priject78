@@ -38,7 +38,7 @@ export function Integrations() {
         tone="glass"
         title="Directory"
         subtitle={`${visible.length} integrations`}
-        actions={
+        action={
           <div className="toolbar-inline">
             <Segmented
               value={filter}

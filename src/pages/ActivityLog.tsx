@@ -60,7 +60,7 @@ export function ActivityLog() {
         tone="glass"
         title="Timeline"
         subtitle={`${visible.length} of ${data.activity.length} events`}
-        actions={
+        action={
           <div className="toolbar-inline">
             <Segmented
               value={filter}

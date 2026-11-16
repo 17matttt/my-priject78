@@ -92,7 +92,7 @@ export function Reports() {
         tone="glass"
         title="Revenue evolution"
         subtitle="Monthly income against expenses"
-        actions={
+        action={
           <Segmented
             value={range}
             onChange={setRange}
